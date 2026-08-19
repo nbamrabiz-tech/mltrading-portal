@@ -517,6 +517,7 @@ def main():
             tc3.metric("15-Min Bias",    m15)
             tc4.metric("Alignment Score",f"{al_score}/100")
 
+            al_score = al_score or 50
             al_color = ("#0066CC" if al_score>=58
                         else "#CC0000" if al_score<=42
                         else "#FF8C00")
