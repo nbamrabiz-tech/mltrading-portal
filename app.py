@@ -71,12 +71,13 @@ def get_todays_events():
     try:
         with engine.connect() as conn:
             result = conn.execute(text("""
-                SELECT event_type, actual_value,
-                       previous_value, impact_score
+                SELECT DISTINCT ON (event_type)
+                    event_type, actual_value,
+                    previous_value, impact_score
                 FROM economic_events
                 WHERE market='US' AND event_date=:td
                 AND impact_score IN ('High','Medium')
-                ORDER BY impact_score ASC
+                ORDER BY event_type, id DESC
             """), {"td": str(today)})
             return result.fetchall()
     except:
