@@ -721,9 +721,15 @@ def main():
                 )
             with sv2:
                 ns = report.get("sentiment_score",50)
-                news_score = max(0,min(100,
-                    int((ns - vix_score*0.6)/0.4)
-                    if ns else 49))
+                # Correct news score derivation
+                # Combined = VIX*0.6 + News*0.4
+                # So News = (Combined - VIX*0.6) / 0.4
+                combined = report.get("sentiment_score", 50) or 50
+                derived_news = (combined - vix_score*0.6) / 0.4
+                news_score = max(0, min(100, round(derived_news)))
+                # If no real news data — show neutral
+                if news_score <= 0 or news_score > 100:
+                news_score = 49
                 st.markdown("**News Signal (40% weight)**")
                 st.markdown(
                     f'<p style="color:#333;'
