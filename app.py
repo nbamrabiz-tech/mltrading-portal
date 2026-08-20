@@ -1049,7 +1049,8 @@ def main():
                 t_setup = fc4.selectbox(
                     "Setup",
                     ["Momentum","Reversal","Breakout",
-                     "Range","Event","FOMO","Revenge",
+                     "Range","Event","Mean Reversion",
+                     "Trend Pullback","FOMO","Revenge",
                      "Other"],
                     key="t_setup"
                 )
@@ -1103,13 +1104,20 @@ def main():
 
                 if submitted and t_entry > 0 and t_exit > 0:
                     # Calculate P&L
-                    if t_dir == "Long":
-                        pnl = ((t_exit - t_entry)
-                               * 20)  # NQ = $20/point
-                    else:
-                        pnl = ((t_entry - t_exit)
-                               * 20)
+                    # P&L based on ticker
+                    point_value = {
+                    "NQ":  20.0,   # NQ = $20/point
+                    "MNQ":  2.0,   # Micro NQ = $2/point
+                    "ES":   50.0,  # ES = $50/point
+                    "MES":   5.0,  # Micro ES = $5/point
+                    "SPY":   1.0,  # SPY = $1/share
+                    "QQQ":   1.0   # QQQ = $1/share
+                    }.get(t_ticker, 1.0)
 
+                if t_dir == "Long":
+                    pnl = (t_exit - t_entry) * point_value
+                    else:
+                    pnl = (t_entry - t_exit) * point_value
                     outcome = ("Win" if pnl > 0
                                else "Loss" if pnl < 0
                                else "Scratch")
@@ -1175,10 +1183,9 @@ def main():
                                         if report
                                         else "Unknown")
                                 risk = abs(t_entry - t_stop)
-                                pnl_r = round(
-                                    pnl/(risk*20),2
+                              pnl_r = round(
+                              pnl/(risk*point_value),2
                                 ) if risk > 0 else 0
-
                                 conn.execute(text("""
                                     INSERT INTO trade_journal(
                                         market,trade_date,
