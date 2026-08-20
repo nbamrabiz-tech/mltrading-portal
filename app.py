@@ -135,18 +135,6 @@ def get_learning_log_deduped():
         pass
     return pd.DataFrame()
 
-def get_vix():
-    try:
-        with engine.connect() as conn:
-            result = conn.execute(text("""
-                SELECT CAST(close AS FLOAT)
-                FROM vix_data WHERE market='US'
-                ORDER BY date DESC LIMIT 1
-            """))
-            row = result.fetchone()
-            return float(row[0]) if row else 18.0
-    except:
-        return 18.0
 
 def get_trade_journal(days_back=30):
     start = date.today() - timedelta(days=days_back)
@@ -291,7 +279,6 @@ def main():
     # ══════════════════════════════════════════════════════════
     with tabs[0]:
         report = get_latest_report()
-        vix    = get_vix()
         events = get_todays_events()
         levels = get_spy_levels()
 
@@ -374,21 +361,26 @@ def main():
                 ), unsafe_allow_html=True)
 
             with c4:
-                vix_color = ("#0066CC" if vix < 15
-                             else "#CC0000" if vix >= 25
-                             else "#FF8C00")
-                vix_lbl   = ("Low fear" if vix < 15
-                             else "High fear" if vix >= 25
-                             else "Moderate")
+                sent_score = report.get(
+                    "sentiment_score", 50) or 50
+                sent_color = ("#0066CC" if sent_score >= 60
+                              else "#CC0000"
+                              if sent_score <= 40
+                              else "#FF8C00")
+                sent_lbl   = ("Bullish" if sent_score >= 60
+                              else "Bearish"
+                              if sent_score <= 40
+                              else "Neutral")
                 st.markdown(card(
                     f'<p style="color:#666;margin:0;'
-                    f'font-size:11px;">VIX</p>'
-                    f'<p style="color:{vix_color};'
+                    f'font-size:11px;">SENTIMENT</p>'
+                    f'<p style="color:{sent_color};'
                     f'margin:4px 0 0;font-size:22px;'
-                    f'font-weight:bold;">{vix:.2f}</p>'
+                    f'font-weight:bold;">'
+                    f'{sent_score}/100</p>'
                     f'<p style="color:#888;margin:0;'
-                    f'font-size:11px;">{vix_lbl}</p>',
-                    border_color=vix_color
+                    f'font-size:11px;">{sent_lbl}</p>',
+                    border_color=sent_color
                 ), unsafe_allow_html=True)
 
             st.divider()
@@ -753,56 +745,86 @@ def main():
     # ══════════════════════════════════════════════════════════
     # TAB 4 — SENTIMENT
     # ══════════════════════════════════════════════════════════
-    with tabs[3]:
+        with tabs[3]:
         st.subheader("😊 Market Sentiment")
-        vix    = get_vix()
         report = get_latest_report()
         events = get_todays_events()
 
-        sc1,sc2,sc3 = st.columns(3)
-        vix_lbl = ("Low fear" if vix < 15
-                   else "High fear" if vix >= 25
-                   else "Moderate")
-        sc1.metric("VIX", f"{vix:.2f}", vix_lbl)
-
         if report:
-            ss = report.get("sentiment_score",50)
-            vt = report.get("vix_trend","Unknown")
-            sc2.metric("Sentiment Score", f"{ss}/100")
-            sc3.metric("VIX Trend", vt)
+            sent  = report.get("sentiment_score",50) or 50
+            ns    = report.get("narrative_score",50) or 50
+            ie    = report.get("is_event_day",False)
+            bias  = report.get("bias","Neutral")
+            score = report.get("matrix_score",50)
 
-        st.divider()
-        if report:
-            vix_score = (80 if vix < 15
-                         else 65 if vix < 20
-                         else 45 if vix < 25
-                         else 25)
-            sv1,sv2 = st.columns(2)
+            sc1,sc2,sc3 = st.columns(3)
+            sent_lbl = ("Bullish" if sent >= 60
+                        else "Bearish" if sent <= 40
+                        else "Neutral")
+            sc1.metric("Sentiment Score",
+                       f"{sent}/100", sent_lbl)
+            sc2.metric("Narrative Score",
+                       f"{ns}/100")
+            sc3.metric("Event Day",
+                       "Yes ★★★" if ie else "No")
+
+            st.divider()
+
+            # Sentiment breakdown
+            sv1, sv2 = st.columns(2)
+
             with sv1:
-                st.markdown("**VIX Signal (35% weight)**")
-                vix_col = ("#0066CC" if vix < 15
-                           else "#CC0000" if vix >= 25
-                           else "#FF8C00")
+                st.markdown("**News Sentiment**")
+                sent_color = ("#0066CC" if sent >= 60
+                              else "#CC0000" if sent <= 40
+                              else "#FF8C00")
                 st.markdown(
-                    f'<p style="color:{vix_col};'
-                    f'font-size:18px;font-weight:bold;">'
-                    f'{vix_score}/100 — {vix_lbl}</p>',
-                    unsafe_allow_html=True
-                )
-            with sv2:
-                st.markdown("**News Signal (65% weight)**")
-                combined = (report.get("sentiment_score",50)
-                            or 50)
-                raw_news = ((combined - vix_score*0.6)/0.4)
-                news_sc  = max(10, min(90, round(raw_news)))
-                st.markdown(
-                    f'<p style="color:#333;font-size:18px;'
-                    f'font-weight:bold;">'
-                    f'{news_sc}/100</p>'
+                    f'<p style="color:{sent_color};'
+                    f'font-size:22px;font-weight:bold;">'
+                    f'{sent}/100 — {sent_lbl}</p>'
                     f'<p style="color:#666;font-size:12px;">'
-                    f'VADER sentiment</p>',
+                    f'Source: Manual input or VADER news</p>'
+                    f'<p style="color:#888;font-size:11px;">'
+                    f'VIX removed — stale daily data</p>',
                     unsafe_allow_html=True
                 )
+
+            with sv2:
+                st.markdown("**Economic Narrative**")
+                ns_color = ("#0066CC" if ns >= 60
+                            else "#CC0000" if ns <= 40
+                            else "#FF8C00")
+                ns_lbl   = ("Bullish" if ns >= 60
+                            else "Bearish" if ns <= 40
+                            else "Neutral")
+                st.markdown(
+                    f'<p style="color:{ns_color};'
+                    f'font-size:22px;font-weight:bold;">'
+                    f'{ns}/100 — {ns_lbl}</p>'
+                    f'<p style="color:#666;font-size:12px;">'
+                    f'Scored from economic events</p>',
+                    unsafe_allow_html=True
+                )
+
+            st.divider()
+            st.markdown("**How sentiment is calculated:**")
+            st.markdown(card(
+                f'<p style="color:#333;font-size:13px;'
+                f'line-height:1.8;margin:0;">'
+                f'<b>Priority 1:</b> Manual score '
+                f'(MANUAL_SENTIMENT in Cell 2)<br>'
+                f'<b>Priority 2:</b> VADER news sentiment '
+                f'from Railway headlines<br>'
+                f'<b>Priority 3:</b> Default 50 (neutral) '
+                f'if no data available<br><br>'
+                f'<b>VIX removed</b> — yesterday\'s VIX '
+                f'has no intraday predictive value.<br>'
+                f'Set MANUAL_SENTIMENT in Cell 2 every '
+                f'morning for best accuracy.</p>'
+            ), unsafe_allow_html=True)
+
+        else:
+            st.warning("Run morning script first.")
 
         if events:
             st.divider()
@@ -818,15 +840,17 @@ def main():
                     arrow = " ↑" if diff > 0 else " ↓"
                 st.markdown(card(
                     f'<b style="color:{ic};">[{ev[3]}]</b> '
-                    f'<span style="color:#333;">{ev[0]}</span>'
+                    f'<span style="color:#333;">'
+                    f'{ev[0]}</span>'
                     f'<br><span style="color:#666;'
                     f'font-size:12px;">'
-                    f'A:{actual} P:{previous}{arrow}</span>',
+                    f'A:{actual} P:{previous}{arrow}'
+                    f'</span>',
                     border_color=ic
                 ), unsafe_allow_html=True)
         else:
             st.info("No events for today yet.")
-
+            
     # ══════════════════════════════════════════════════════════
     # TAB 5 — MY PROFILE + LAYER 7
     # ══════════════════════════════════════════════════════════
