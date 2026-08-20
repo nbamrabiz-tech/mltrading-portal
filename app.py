@@ -44,14 +44,17 @@ def get_latest_report():
     today = get_last_trading_day()
     try:
         with engine.connect() as conn:
+            # Try today first
             result = conn.execute(text("""
                 SELECT * FROM intelligence_reports
-                WHERE market='US' AND report_date=:td
+                WHERE market='US'
+                AND report_date=:td
                 ORDER BY created_at DESC LIMIT 1
             """), {"td": str(today)})
             row = result.fetchone()
             if row:
                 return dict(zip(result.keys(), row))
+            # Fall back to latest
             result = conn.execute(text("""
                 SELECT * FROM intelligence_reports
                 WHERE market='US'
@@ -61,10 +64,10 @@ def get_latest_report():
             row = result.fetchone()
             if row:
                 return dict(zip(result.keys(), row))
-    except:
-        pass
+    except Exception as e:
+        st.error(f"Report error: {e}")
     return None
-
+    
 def get_todays_events():
     today = get_last_trading_day()
     try:
@@ -124,7 +127,7 @@ def get_learning_log_deduped():
                 FROM learning_log
                 WHERE market='US'
                 ORDER BY log_date DESC,
-                         created_at DESC
+                         logged_at DESC
                 LIMIT 30
             """))
             rows = result.fetchall()
@@ -132,8 +135,8 @@ def get_learning_log_deduped():
                 return pd.DataFrame(rows,
                     columns=["date","predicted","actual",
                              "return","correct","score"])
-    except:
-        pass
+    except Exception as e:
+        st.error(f"Learning log error: {e}")
     return pd.DataFrame()
 
 def get_vix():
