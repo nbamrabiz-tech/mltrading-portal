@@ -759,154 +759,668 @@ def main():
         else:
             st.info("No events for today yet.")
 
-    # ══════════════════════════════════════════════════════════
-    # TAB 5 — MY PROFILE
+        # ══════════════════════════════════════════════════════════
+    # TAB 5 — MY PROFILE + LAYER 7 BEHAVIORAL INTELLIGENCE
     # ══════════════════════════════════════════════════════════
     with tabs[4]:
-        st.subheader("👤 My Profile & Journal")
 
-        # Log trade form
-        st.markdown("### Log a Paper Trade")
-        with st.form("trade_form"):
-            ff1,ff2,ff3 = st.columns(3)
-            t_ticker    = ff1.selectbox("Ticker",
-                                        ["SPY","QQQ"])
-            t_direction = ff2.selectbox("Direction",
-                                        ["Long","Short"])
-            t_scenario  = ff3.selectbox("Scenario",
-                                        ["A","B","C","None"])
-            ff4,ff5,ff6 = st.columns(3)
-            t_entry  = ff4.number_input(
-                "Entry", value=770.0,
-                step=0.25, format="%.2f")
-            t_exit   = ff5.number_input(
-                "Exit",  value=768.0,
-                step=0.25, format="%.2f")
-            t_risk   = ff6.number_input(
-                "Risk ($)", value=38.0, step=1.0)
-            t_notes  = st.text_input("Notes (optional)")
-            submitted = st.form_submit_button("💾 Log Trade")
+        # ── Helper functions ──────────────────────────────────
+        def get_behavioral_brief():
+            """Pull behavioral patterns for morning brief."""
+            start = date.today() - timedelta(days=30)
+            try:
+                with engine.connect() as conn:
+                    events = conn.execute(text("""
+                        SELECT behavior_type,
+                               COUNT(*) as cnt,
+                               SUM(financial_cost) as cost
+                        FROM behavioral_events
+                        WHERE market='US'
+                        AND event_date >= :start
+                        GROUP BY behavior_type
+                        ORDER BY cnt DESC
+                    """), {"start": str(start)}).fetchall()
 
-            if submitted:
-                pnl = (t_exit-t_entry
-                       if t_direction=="Long"
-                       else t_entry-t_exit)
-                outcome = ("Win" if pnl>0
-                           else "Loss" if pnl<0
-                           else "Scratch")
-                report = get_latest_report()
-                ms   = (report.get("matrix_score",50)
-                        if report else 50)
-                bias = (report.get("bias","Neutral")
-                        if report else "Neutral")
-                try:
-                    with engine.connect() as conn:
-                        conn.execute(text("""
-                            INSERT INTO trade_log(
-                                market,trade_date,ticker,
-                                direction,entry_price,
-                                exit_price,risk_amount,
-                                pnl,pnl_pct,matrix_score,
-                                bias,scenario,outcome,notes)
-                            VALUES('US',:td,:ticker,:dir,
-                                :entry,:exit,:risk,
-                                :pnl,:pnl_pct,:ms,
-                                :bias,:scenario,
-                                :outcome,:notes)
-                        """), {
-                            "td":      str(date.today()),
-                            "ticker":  t_ticker,
-                            "dir":     t_direction,
-                            "entry":   t_entry,
-                            "exit":    t_exit,
-                            "risk":    t_risk,
-                            "pnl":     round(pnl,2),
-                            "pnl_pct": round(pnl/t_entry*100,4),
-                            "ms":      ms,
-                            "bias":    bias,
-                            "scenario":t_scenario,
-                            "outcome": outcome,
-                            "notes":   t_notes
-                        })
-                        conn.commit()
-                    color = ("#0066CC" if pnl>0 else "#CC0000")
-                    st.success(
-                        f"Trade logged: "
-                        f"{'WIN' if pnl>0 else 'LOSS'} "
-                        f"${pnl:+.2f}"
+                    scores = conn.execute(text("""
+                        SELECT overall_score,
+                               behavioral_state,
+                               score_date
+                        FROM behavioral_scores
+                        WHERE market='US'
+                        ORDER BY score_date DESC
+                        LIMIT 7
+                    """)).fetchall()
+
+                    today_trades = conn.execute(text("""
+                        SELECT COUNT(*),
+                               SUM(CASE WHEN pnl>0
+                                   THEN 1 ELSE 0 END),
+                               SUM(pnl),
+                               AVG(emotional_state)
+                        FROM trade_journal
+                        WHERE market='US'
+                        AND trade_date=:td
+                    """), {"td": str(date.today())}).fetchone()
+
+                    today_behaviors = conn.execute(text("""
+                        SELECT behavior_type, severity,
+                               COUNT(*) as cnt
+                        FROM behavioral_events
+                        WHERE market='US'
+                        AND event_date=:td
+                        GROUP BY behavior_type, severity
+                    """), {"td": str(date.today())}).fetchall()
+
+                return events, scores, today_trades, today_behaviors
+            except:
+                return [], [], None, []
+
+        def get_journal_trades(days_back=30):
+            """Pull trade journal entries."""
+            start = date.today() - timedelta(days=days_back)
+            try:
+                with engine.connect() as conn:
+                    trades = conn.execute(text("""
+                        SELECT trade_date, trade_time,
+                               ticker, direction,
+                               entry_price, exit_price,
+                               pnl, pnl_r, outcome,
+                               emotional_state,
+                               followed_plan,
+                               setup_type, mistake,
+                               account_type
+                        FROM trade_journal
+                        WHERE market='US'
+                        AND trade_date >= :start
+                        ORDER BY trade_date DESC,
+                                 created_at DESC
+                        LIMIT 50
+                    """), {"start": str(start)}).fetchall()
+                return trades
+            except:
+                return []
+
+        # ── Behavioral state banner ───────────────────────────
+        events, scores, today_t, today_b = get_behavioral_brief()
+
+        # Determine current state
+        today_losses = 0
+        hi_behaviors = 0
+        if today_t and today_t[0]:
+            total_today = int(today_t[0] or 0)
+            wins_today  = int(today_t[1] or 0)
+            today_losses = total_today - wins_today
+        hi_behaviors = sum(1 for b in today_b
+                           if b[1] == "High")
+
+        if today_losses >= 2 or hi_behaviors >= 3:
+            state_color = "#CC0000"
+            state_text  = "🔴 STOP TRADING"
+            state_desc  = (f"{today_losses} losses today + "
+                           f"behavioral issues detected. "
+                           f"Close platform now.")
+        elif today_losses >= 1 or hi_behaviors >= 2:
+            state_color = "#FF6600"
+            state_text  = "🟠 TILT RISK"
+            state_desc  = ("Elevated risk. "
+                           "Minimum size only.")
+        elif hi_behaviors >= 1:
+            state_color = "#FF8C00"
+            state_text  = "🟡 ELEVATED"
+            state_desc  = ("Minor issues present. "
+                           "Trade with caution.")
+        else:
+            state_color = "#0066CC"
+            state_text  = "🟢 NORMAL"
+            state_desc  = "No behavioral concerns today."
+
+        st.markdown(
+            f"""
+            <div style='background:{state_color}20;
+            padding:14px;border-radius:8px;
+            border-left:4px solid {state_color};
+            margin-bottom:12px;'>
+            <p style='color:{state_color};font-size:18px;
+            font-weight:bold;margin:0;'>{state_text}</p>
+            <p style='color:#333;font-size:13px;margin:4px 0 0;'>
+            {state_desc}</p>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+
+        # ── Two columns — brief + log ─────────────────────────
+        col_brief, col_log = st.columns([1, 1])
+
+        # ── Morning brief ─────────────────────────────────────
+        with col_brief:
+            st.subheader("📋 Morning Brief")
+
+            if events:
+                st.markdown("**Your patterns — last 30 days:**")
+                for e in events[:5]:
+                    cost  = float(e[2] or 0)
+                    count = int(e[1])
+                    color = ("#CC0000"
+                             if cost < -50 else "#FF8C00"
+                             if cost < 0 else "#0066CC")
+                    st.markdown(
+                        f"""
+                        <div style='background:#F8F9FA;
+                        padding:8px 12px;border-radius:6px;
+                        border-left:3px solid {color};
+                        margin-bottom:4px;'>
+                        <span style='color:{color};
+                        font-weight:bold;font-size:12px;'>
+                        {e[0]}</span>
+                        <span style='color:#666;
+                        font-size:12px;margin-left:8px;'>
+                        {count}x</span>
+                        <span style='color:{color};
+                        font-size:12px;float:right;'>
+                        ${cost:+.0f}</span>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
                     )
-                except Exception as e:
-                    st.error(f"Save failed: {e}")
+            else:
+                st.info("No behavioral data yet. "
+                        "Log trades to see patterns.")
+
+            # Warnings
+            st.markdown("**Today's warnings:**")
+            warnings_shown = 0
+
+            revenge = next((e for e in events
+                            if e[0]=="Revenge Trading"),None)
+            if revenge and int(revenge[1]) >= 1:
+                st.markdown(
+                    f"""
+                    <div style='background:#FFE8E8;
+                    padding:8px 12px;border-radius:6px;
+                    margin-bottom:4px;'>
+                    🔴 <b>Revenge trading pattern</b>
+                    ({int(revenge[1])}x in 30 days)<br>
+                    <span style='color:#666;font-size:12px;'>
+                    After ANY loss → 30 min break,
+                    no exceptions</span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                warnings_shown += 1
+
+            fomo = next((e for e in events
+                         if e[0]=="FOMO"), None)
+            if fomo and int(fomo[1]) >= 1:
+                st.markdown(
+                    f"""
+                    <div style='background:#FFE8E8;
+                    padding:8px 12px;border-radius:6px;
+                    margin-bottom:4px;'>
+                    🔴 <b>FOMO pattern</b>
+                    ({int(fomo[1])}x in 30 days)<br>
+                    <span style='color:#666;font-size:12px;'>
+                    Check system report BEFORE every trade
+                    </span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                warnings_shown += 1
+
+            rapid = next((e for e in events
+                          if e[0] in ["Greed",
+                                      "Rapid Reentry"]),None)
+            if rapid and int(rapid[1]) >= 1:
+                st.markdown(
+                    f"""
+                    <div style='background:#FFF3CD;
+                    padding:8px 12px;border-radius:6px;
+                    margin-bottom:4px;'>
+                    🟡 <b>Quick reentry pattern</b>
+                    ({int(rapid[1])}x in 30 days)<br>
+                    <span style='color:#666;font-size:12px;'>
+                    Loss → 30 min | Win → 15 min
+                    </span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
+                warnings_shown += 1
+
+            if warnings_shown == 0:
+                st.success("No major patterns yet. "
+                           "Keep logging.")
+
+            # Behavioral score trend
+            if scores:
+                st.markdown("**Score trend (7 days):**")
+                score_vals = [int(s[0]) for s in
+                              reversed(scores)]
+                score_dates = [str(s[2]) for s in
+                               reversed(scores)]
+                import plotly.graph_objects as go
+                fig = go.Figure()
+                fig.add_trace(go.Scatter(
+                    x=score_dates,
+                    y=score_vals,
+                    mode="lines+markers",
+                    line=dict(color="#0066CC",width=2),
+                    marker=dict(size=6)
+                ))
+                fig.update_layout(
+                    height=150,
+                    margin=dict(l=0,r=0,t=0,b=0),
+                    yaxis=dict(range=[0,100]),
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    plot_bgcolor="rgba(0,0,0,0)"
+                )
+                st.plotly_chart(fig,
+                    use_container_width=True)
+
+        # ── Quick trade log ───────────────────────────────────
+        with col_log:
+            st.subheader("📝 Log a Trade")
+            st.caption("45 seconds — log every trade")
+
+            with st.form("trade_log_form",
+                         clear_on_submit=True):
+
+                fc1, fc2 = st.columns(2)
+                t_ticker = fc1.selectbox(
+                    "Ticker",
+                    ["NQ","ES","SPY","QQQ","MES","MNQ"],
+                    key="t_ticker"
+                )
+                t_acct = fc2.selectbox(
+                    "Account",
+                    ["Live","Topstep","Combine","Paper"],
+                    key="t_acct"
+                )
+
+                fc3, fc4 = st.columns(2)
+                t_dir = fc3.radio(
+                    "Direction",
+                    ["Long","Short"],
+                    horizontal=True,
+                    key="t_dir"
+                )
+                t_setup = fc4.selectbox(
+                    "Setup",
+                    ["Momentum","Reversal","Breakout",
+                     "Range","Event","FOMO","Revenge",
+                     "Other"],
+                    key="t_setup"
+                )
+
+                fc5, fc6, fc7 = st.columns(3)
+                t_entry = fc5.number_input(
+                    "Entry", value=0.0,
+                    step=0.25, format="%.2f",
+                    key="t_entry"
+                )
+                t_exit = fc6.number_input(
+                    "Exit", value=0.0,
+                    step=0.25, format="%.2f",
+                    key="t_exit"
+                )
+                t_stop = fc7.number_input(
+                    "Stop", value=0.0,
+                    step=0.25, format="%.2f",
+                    key="t_stop"
+                )
+
+                t_emotion = st.slider(
+                    "Emotional state (1=calm, 10=max stress)",
+                    min_value=1, max_value=10,
+                    value=5, key="t_emotion"
+                )
+
+                fc8, fc9 = st.columns(2)
+                t_plan = fc8.radio(
+                    "Followed plan?",
+                    ["Yes","No"],
+                    horizontal=True,
+                    key="t_plan"
+                )
+                t_checked = fc9.radio(
+                    "Checked system?",
+                    ["Yes","No"],
+                    horizontal=True,
+                    key="t_checked"
+                )
+
+                t_mistake = st.text_input(
+                    "Mistake (optional — leave blank if none)",
+                    key="t_mistake"
+                )
+
+                submitted = st.form_submit_button(
+                    "💾 Log Trade",
+                    use_container_width=True
+                )
+
+                if submitted and t_entry > 0 and t_exit > 0:
+                    # Calculate P&L
+                    if t_dir == "Long":
+                        pnl = ((t_exit - t_entry)
+                               * 20)  # NQ = $20/point
+                    else:
+                        pnl = ((t_entry - t_exit)
+                               * 20)
+
+                    outcome = ("Win" if pnl > 0
+                               else "Loss" if pnl < 0
+                               else "Scratch")
+
+                    # Rapid reentry check
+                    try:
+                        with engine.connect() as conn:
+                            last_trade = conn.execute(
+                                text("""
+                                SELECT created_at, pnl
+                                FROM trade_journal
+                                WHERE market='US'
+                                AND trade_date=:td
+                                ORDER BY created_at DESC
+                                LIMIT 1
+                            """), {
+                                "td": str(date.today())
+                            }).fetchone()
+
+                        reentry_warning = None
+                        if last_trade:
+                            mins = abs((
+                                datetime.now(pytz.utc) -
+                                last_trade[0]
+                            ).total_seconds()) / 60
+                            prev_pnl = float(last_trade[1])
+                            if prev_pnl < 0 and mins < 30:
+                                reentry_warning = (
+                                    f"⛔ Only {mins:.0f} min "
+                                    f"since last loss. "
+                                    f"Need 30 min."
+                                )
+                            elif prev_pnl >= 0 and mins < 15:
+                                reentry_warning = (
+                                    f"⚠️ Only {mins:.0f} min "
+                                    f"since last trade. "
+                                    f"Need 15 min."
+                                )
+                    except:
+                        reentry_warning = None
+
+                    if reentry_warning:
+                        st.error(reentry_warning)
+                    else:
+                        # Save trade
+                        try:
+                            with engine.connect() as conn:
+                                report = conn.execute(
+                                    text("""
+                                    SELECT matrix_score,bias
+                                    FROM intelligence_reports
+                                    WHERE market='US'
+                                    AND report_date=:td
+                                    ORDER BY created_at
+                                    DESC LIMIT 1
+                                """), {
+                                    "td": str(date.today())
+                                }).fetchone()
+
+                                ms   = (int(report[0])
+                                        if report else 50)
+                                bias = (report[1]
+                                        if report
+                                        else "Unknown")
+                                risk = abs(t_entry - t_stop)
+                                pnl_r = round(
+                                    pnl/(risk*20),2
+                                ) if risk > 0 else 0
+
+                                conn.execute(text("""
+                                    INSERT INTO trade_journal(
+                                        market,trade_date,
+                                        trade_time,ticker,
+                                        account_type,direction,
+                                        setup_type,entry_price,
+                                        exit_price,stop_price,
+                                        pnl,pnl_r,matrix_score,
+                                        bias_today,
+                                        emotional_state,
+                                        followed_plan,mistake,
+                                        checked_system,
+                                        pre_trade_gate)
+                                    VALUES(
+                                        'US',:td,:tt,:ticker,
+                                        :acct,:dir,:setup,
+                                        :entry,:exit,:stop,
+                                        :pnl,:pnl_r,:ms,:bias,
+                                        :emotion,:plan,
+                                        :mistake,:checked,
+                                        :gate)
+                                """), {
+                                    "td":     str(date.today()),
+                                    "tt":     datetime.now(EST
+                                        ).strftime("%H:%M"),
+                                    "ticker": t_ticker,
+                                    "acct":   t_acct,
+                                    "dir":    t_dir,
+                                    "setup":  t_setup,
+                                    "entry":  t_entry,
+                                    "exit":   t_exit,
+                                    "stop":   t_stop,
+                                    "pnl":    round(pnl,2),
+                                    "pnl_r":  pnl_r,
+                                    "ms":     ms,
+                                    "bias":   bias,
+                                    "emotion":t_emotion,
+                                    "plan":   t_plan=="Yes",
+                                    "mistake":t_mistake,
+                                    "checked":t_checked=="Yes",
+                                    "gate":   (
+                                        t_plan=="Yes" and
+                                        t_checked=="Yes")
+                                })
+                                conn.commit()
+
+                            color = ("#0066CC" if pnl > 0
+                                     else "#CC0000")
+                            st.markdown(
+                                f"""
+                                <div style='background:{color}20;
+                                padding:12px;border-radius:8px;
+                                border-left:4px solid {color};'>
+                                <b style='color:{color};
+                                font-size:16px;'>
+                                {outcome} — ${pnl:+.2f}
+                                ({pnl_r:+.2f}R)</b>
+                                </div>
+                                """,
+                                unsafe_allow_html=True
+                            )
+                            st.rerun()
+
+                        except Exception as e:
+                            st.error(f"Save failed: {e}")
 
         st.divider()
 
-        # Performance summary
-        st.markdown("### Performance Summary")
-        trades_df = get_trade_log()
+        # ── Today's behavior detections ───────────────────────
+        if today_b:
+            st.subheader("⚠️ Today's Behavioral Alerts")
+            for b in today_b:
+                color = ("#CC0000" if b[1]=="High"
+                         else "#FF8C00")
+                st.markdown(
+                    f"""
+                    <div style='background:{color}15;
+                    padding:10px 14px;border-radius:6px;
+                    border-left:3px solid {color};
+                    margin-bottom:6px;'>
+                    <b style='color:{color};'>
+                    {b[0]}</b>
+                    <span style='color:#666;
+                    font-size:12px;margin-left:8px;'>
+                    {b[1]} severity — {int(b[2])}x today
+                    </span>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
 
-        if trades_df.empty:
-            st.info("No trades logged yet.")
-        else:
-            total = len(trades_df)
-            wins  = len(trades_df[
-                trades_df["outcome"]=="Win"])
-            losses= len(trades_df[
-                trades_df["outcome"]=="Loss"])
-            wr    = round(wins/total*100,1) if total>0 else 0
-            total_pnl = round(
-                trades_df["pnl"].astype(float).sum(),2)
-            avg_win = round(
-                trades_df[trades_df["outcome"]=="Win"
-                ]["pnl"].astype(float).mean(),2
-            ) if wins>0 else 0
-
-            pm1,pm2,pm3,pm4 = st.columns(4)
-            pm1.metric("Total Trades", total)
-            pm2.metric("Win Rate",     f"{wr}%")
-            pm3.metric("Total P&L",    f"${total_pnl:+.2f}")
-            pm4.metric("Avg Win",      f"${avg_win:+.2f}")
-
-            st.dataframe(
-                trades_df[[
-                    "date","ticker","direction",
-                    "entry","exit","pnl","outcome"
-                ]].head(20),
-                use_container_width=True
-            )
-
+        # ── Trade journal ─────────────────────────────────────
         st.divider()
+        st.subheader("📊 Trade Journal")
 
-        # Forward test record — deduplicated
-        st.markdown("### Forward Test Record")
-        log_df = get_learning_log_deduped()
+        col_f1, col_f2 = st.columns(2)
+        days_filter = col_f1.selectbox(
+            "Period",
+            ["Today","Last 7 days","Last 30 days"],
+            key="journal_period"
+        )
+        account_filter = col_f2.selectbox(
+            "Account",
+            ["All","Live","Topstep","Combine","Paper"],
+            key="journal_acct"
+        )
 
-        if log_df.empty:
-            st.info("No forward test data yet.")
+        days_map = {"Today":1,"Last 7 days":7,
+                    "Last 30 days":30}
+        trades = get_journal_trades(
+            days_map[days_filter])
+
+        if account_filter != "All":
+            trades = [t for t in trades
+                      if t[13] == account_filter]
+
+        if trades:
+            total   = len(trades)
+            wins    = sum(1 for t in trades
+                          if float(t[6]) > 0)
+            total_pnl = sum(float(t[6]) for t in trades)
+            wr      = round(wins/total*100,1)
+
+            sm1,sm2,sm3,sm4 = st.columns(4)
+            sm1.metric("Trades",    total)
+            sm2.metric("Win Rate",  f"{wr}%")
+            sm3.metric("Total P&L", f"${total_pnl:+.2f}")
+            sm4.metric("Wins",      wins)
+
+            st.divider()
+
+            for t in trades[:20]:
+                pnl   = float(t[6])
+                color = ("#0066CC" if pnl > 0
+                         else "#CC0000"
+                         if pnl < 0 else "#888")
+                em    = ("✅" if pnl > 0
+                         else "❌" if pnl < 0 else "➖")
+                plan  = "✓" if t[10] else "✗"
+                chk   = "✓" if False else "✗"
+
+                st.markdown(
+                    f"""
+                    <div style='background:#F8F9FA;
+                    padding:10px 14px;border-radius:8px;
+                    border-left:4px solid {color};
+                    margin-bottom:6px;'>
+                    <div style='display:flex;
+                    justify-content:space-between;'>
+                    <span>
+                    <b style='color:#333;'>{em} {t[2]} {t[3]}
+                    </b>
+                    <span style='color:#888;
+                    font-size:12px;margin-left:8px;'>
+                    {t[0]} {t[1] or ''} • {t[11] or ''}
+                    • {t[13] or ''}
+                    </span>
+                    </span>
+                    <b style='color:{color};'>
+                    ${pnl:+.2f}
+                    ({float(t[7]):+.2f}R)
+                    </b>
+                    </div>
+                    <div style='color:#888;
+                    font-size:11px;margin-top:4px;'>
+                    Entry:{float(t[4]):.2f} →
+                    Exit:{float(t[5]):.2f} •
+                    Emotion:{t[9]}/10 •
+                    Plan:{plan}
+                    {f"• ⚠️ {t[12]}" if t[12] else ""}
+                    </div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True
+                )
         else:
-            total_days = len(log_df)
-            correct    = log_df["correct"].sum()
-            wr_days    = round(
-                correct/total_days*100,1
-            ) if total_days>0 else 0
+            st.info("No trades logged yet. "
+                    "Use the form above to log trades.")
 
-            fl1,fl2,fl3 = st.columns(3)
-            fl1.metric("Days Tested",  total_days)
-            fl2.metric("Correct",      int(correct))
-            fl3.metric("Accuracy",     f"{wr_days}%")
+        # ── Money leak summary ────────────────────────────────
+        st.divider()
+        st.subheader("💸 Money Leaks")
 
-            # Color code correct column
-            def color_correct(val):
-                color = "green" if val else "red"
-                return f"color: {color}"
+        start_30 = date.today() - timedelta(days=30)
+        try:
+            with engine.connect() as conn:
+                leaks = conn.execute(text("""
+                    SELECT behavior_type,
+                           COUNT(*) as cnt,
+                           SUM(financial_cost) as cost
+                    FROM behavioral_events
+                    WHERE market='US'
+                    AND event_date >= :start
+                    GROUP BY behavior_type
+                    ORDER BY cost ASC
+                """), {"start":str(start_30)}).fetchall()
 
-            st.dataframe(
-                log_df[[
-                    "date","predicted","actual",
-                    "return","correct","score"
-                ]],
-                use_container_width=True
-            )
-
+            if leaks:
+                for l in leaks:
+                    cost  = float(l[2] or 0)
+                    count = int(l[1])
+                    color = ("#CC0000" if cost < -50
+                             else "#FF8C00"
+                             if cost < 0 else "#888")
+                    pct   = min(100,
+                                abs(cost)/max(1,
+                                abs(min(
+                                    float(ll[2] or 0)
+                                    for ll in leaks)))*100)
+                    st.markdown(
+                        f"""
+                        <div style='background:#F8F9FA;
+                        padding:8px 14px;border-radius:6px;
+                        margin-bottom:4px;'>
+                        <div style='display:flex;
+                        justify-content:space-between;'>
+                        <span style='color:#333;
+                        font-weight:bold;'>
+                        {l[0]}</span>
+                        <span style='color:{color};
+                        font-weight:bold;'>
+                        ${cost:+.0f}
+                        <span style='color:#888;
+                        font-size:11px;font-weight:normal;'>
+                        ({count}x)</span>
+                        </span>
+                        </div>
+                        <div style='background:#E8E8E8;
+                        border-radius:3px;height:4px;
+                        margin-top:4px;'>
+                        <div style='background:{color};
+                        width:{pct}%;height:4px;
+                        border-radius:3px;'></div>
+                        </div>
+                        </div>
+                        """,
+                        unsafe_allow_html=True
+                    )
+            else:
+                st.info("No behavioral data yet.")
+        except Exception as e:
+            st.error(f"Could not load leaks: {e}")
     # ══════════════════════════════════════════════════════════
     # TAB 6 — SETTINGS
     # ══════════════════════════════════════════════════════════
