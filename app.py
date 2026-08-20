@@ -1365,7 +1365,7 @@ def main():
             st.info("No trades logged yet. "
                     "Use the form above to log trades.")
 
-        # ── Money leak summary ────────────────────────────────
+                        # ── Money leak summary ────────────────────────────────
         st.divider()
         st.subheader("💸 Money Leaks")
 
@@ -1384,21 +1384,24 @@ def main():
                 """), {"start":str(start_30)}).fetchall()
 
             if leaks:
+                max_cost = max(
+                    abs(float(l[2] or 0)) for l in leaks)
+                max_cost = max(max_cost, 1)
+
                 for l in leaks:
                     cost  = float(l[2] or 0)
                     count = int(l[1])
+                    pct   = min(100,
+                                abs(cost)/max_cost*100)
                     color = ("#CC0000" if cost < -50
                              else "#FF8C00"
-                             if cost < 0 else "#888")
-                    pct   = min(100,
-                                abs(cost)/max(1,
-                                abs(min(
-                                    float(ll[2] or 0)
-                                    for ll in leaks)))*100)
+                             if cost < 0
+                             else "#0066CC")
                     st.markdown(
                         f"""
                         <div style='background:#F8F9FA;
-                        padding:8px 14px;border-radius:6px;
+                        padding:8px 14px;
+                        border-radius:6px;
                         margin-bottom:4px;'>
                         <div style='display:flex;
                         justify-content:space-between;'>
@@ -1409,7 +1412,8 @@ def main():
                         font-weight:bold;'>
                         ${cost:+.0f}
                         <span style='color:#888;
-                        font-size:11px;font-weight:normal;'>
+                        font-size:11px;
+                        font-weight:normal;'>
                         ({count}x)</span>
                         </span>
                         </div>
@@ -1417,7 +1421,7 @@ def main():
                         border-radius:3px;height:4px;
                         margin-top:4px;'>
                         <div style='background:{color};
-                        width:{pct}%;height:4px;
+                        width:{pct:.0f}%;height:4px;
                         border-radius:3px;'></div>
                         </div>
                         </div>
@@ -1425,7 +1429,9 @@ def main():
                         unsafe_allow_html=True
                     )
             else:
-                st.info("No behavioral data yet.")
+                st.info("No behavioral data yet. "
+                        "Log trades to see patterns.")
+
         except Exception as e:
             st.error(f"Could not load leaks: {e}")
     # ══════════════════════════════════════════════════════════
