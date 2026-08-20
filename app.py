@@ -1,6 +1,5 @@
 # ══════════════════════════════════════════════════════════════
-# MLTrading System — Portal v3 (Streamlit)
-# All 7 Layers integrated
+# MLTrading System — Portal v3
 # ══════════════════════════════════════════════════════════════
 
 import streamlit as st
@@ -44,17 +43,14 @@ def get_latest_report():
     today = get_last_trading_day()
     try:
         with engine.connect() as conn:
-            # Try today first
             result = conn.execute(text("""
                 SELECT * FROM intelligence_reports
-                WHERE market='US'
-                AND report_date=:td
+                WHERE market='US' AND report_date=:td
                 ORDER BY created_at DESC LIMIT 1
             """), {"td": str(today)})
             row = result.fetchone()
             if row:
                 return dict(zip(result.keys(), row))
-            # Fall back to latest
             result = conn.execute(text("""
                 SELECT * FROM intelligence_reports
                 WHERE market='US'
@@ -64,10 +60,10 @@ def get_latest_report():
             row = result.fetchone()
             if row:
                 return dict(zip(result.keys(), row))
-    except Exception as e:
-        st.error(f"Report error: {e}")
+    except:
+        pass
     return None
-    
+
 def get_todays_events():
     today = get_last_trading_day()
     try:
@@ -135,8 +131,8 @@ def get_learning_log_deduped():
                 return pd.DataFrame(rows,
                     columns=["date","predicted","actual",
                              "return","correct","score"])
-    except Exception as e:
-        st.error(f"Learning log error: {e}")
+    except:
+        pass
     return pd.DataFrame()
 
 def get_vix():
@@ -170,7 +166,7 @@ def get_trade_journal(days_back=30):
                 AND trade_date >= :start
                 ORDER BY trade_date DESC,
                          created_at DESC
-                LIMIT 100
+                LIMIT 50
             """), {"start": str(start)})
             return result.fetchall()
     except:
@@ -189,6 +185,7 @@ def get_behavioral_data():
                 AND event_date >= :start
                 GROUP BY behavior_type
                 ORDER BY cnt DESC
+                LIMIT 10
             """), {"start": str(start)}).fetchall()
 
             scores = conn.execute(text("""
@@ -207,6 +204,7 @@ def get_behavioral_data():
                 WHERE market='US'
                 AND event_date=:td
                 GROUP BY behavior_type, severity
+                LIMIT 10
             """), {"td": str(date.today())}).fetchall()
 
             today_t = conn.execute(text("""
@@ -302,17 +300,12 @@ def main():
             if str(rpt_date) != str(today):
                 st.warning(
                     f"⚠️ Showing report from {rpt_date}. "
-                    f"Run morning script in Kaggle to "
-                    f"generate today's report."
+                    f"Run morning script to update."
                 )
 
         if not report:
-            st.warning("No report found. Run morning script.")
-            st.code("""
-# Run in Kaggle MLTrading_Daily:
-# Cell 1 — Master script
-# Cell 2 — Daily runner
-            """)
+            st.warning("No report found. "
+                       "Run morning script first.")
         else:
             bias  = report.get("bias","Neutral")
             score = report.get("matrix_score",50)
@@ -549,8 +542,8 @@ def main():
                 st.info(f"Showing data from {rpt_date}")
 
             st.markdown("### Timeframe Alignment")
-            al_label = report.get("alignment","Unknown")
             al_score = report.get("alignment_score") or 50
+            al_label = report.get("alignment","Unknown")
             daily_tr = report.get("daily_trend","Unknown")
             hourly   = report.get("hourly_bias","Unknown")
             m15      = report.get("m15_bias","Unknown")
@@ -559,7 +552,8 @@ def main():
             tc1.metric("Daily Trend",     daily_tr)
             tc2.metric("1-Hour Bias",     hourly)
             tc3.metric("15-Min Bias",     m15)
-            tc4.metric("Alignment Score", f"{al_score}/100")
+            tc4.metric("Alignment Score",
+                       f"{al_score}/100")
 
             al_color = ("#0066CC" if al_score >= 58
                         else "#CC0000" if al_score <= 42
@@ -583,11 +577,14 @@ def main():
                 if spy_lv:
                     sk1,sk2,sk3 = st.columns(3)
                     sk1.metric("PDH",
-                        f"${spy_lv['pdh']:.2f}","Resistance")
+                        f"${spy_lv['pdh']:.2f}",
+                        "Resistance")
                     sk2.metric("PDC",
-                        f"${spy_lv['pdc']:.2f}","Pivot")
+                        f"${spy_lv['pdc']:.2f}",
+                        "Pivot")
                     sk3.metric("PDL",
-                        f"${spy_lv['pdl']:.2f}","Support")
+                        f"${spy_lv['pdl']:.2f}",
+                        "Support")
 
             with lc2:
                 st.markdown("**QQQ**")
@@ -595,11 +592,14 @@ def main():
                 if qqq_lv:
                     qk1,qk2,qk3 = st.columns(3)
                     qk1.metric("PDH",
-                        f"${qqq_lv['pdh']:.2f}","Resistance")
+                        f"${qqq_lv['pdh']:.2f}",
+                        "Resistance")
                     qk2.metric("PDC",
-                        f"${qqq_lv['pdc']:.2f}","Pivot")
+                        f"${qqq_lv['pdc']:.2f}",
+                        "Pivot")
                     qk3.metric("PDL",
-                        f"${qqq_lv['pdl']:.2f}","Support")
+                        f"${qqq_lv['pdl']:.2f}",
+                        "Support")
 
             div_sig = report.get("divergence_signal","")
             if div_sig:
@@ -618,8 +618,10 @@ def main():
             st.markdown("### Today's Risk Budget")
             account = st.number_input(
                 "Account size ($)",
-                min_value=1000, max_value=1000000,
-                value=10000, step=1000
+                min_value=1000,
+                max_value=1000000,
+                value=10000,
+                step=1000
             )
             risk_tier = st.radio(
                 "Risk tier",
@@ -640,9 +642,11 @@ def main():
             daily_lim = round(max_risk * 3, 2)
 
             report = get_latest_report()
-            tp = report.get("trade_prob",45) if report else 45
+            tp = (report.get("trade_prob",45)
+                  if report else 45)
             max_trades = (1 if tp < 45
-                          else 2 if tp < 60 else 3)
+                          else 2 if tp < 60
+                          else 3)
 
             rc1,rc2 = st.columns(2)
             rc1.metric("Max Risk/Trade",
@@ -663,50 +667,65 @@ def main():
                 ["NQ","ES","MNQ","MES","SPY","QQQ"],
                 key="calc_ticker"
             )
-            point_values = {
+            pv_map = {
                 "NQ":20,"ES":50,"MNQ":2,
                 "MES":5,"SPY":1,"QQQ":1
             }
-            pv = point_values.get(ticker_c,1)
+            pv = pv_map.get(ticker_c, 1)
 
             entry = st.number_input(
-                "Entry price", value=21500.0,
-                step=0.25, format="%.2f")
-            stop  = st.number_input(
-                "Stop loss", value=21480.0,
-                step=0.25, format="%.2f")
+                "Entry price",
+                value=21500.0,
+                step=0.25,
+                format="%.2f"
+            )
+            stop = st.number_input(
+                "Stop loss",
+                value=21480.0,
+                step=0.25,
+                format="%.2f"
+            )
 
             if entry != stop:
-                rps       = abs(entry-stop)
-                direction = "Long" if stop < entry else "Short"
+                rps       = abs(entry - stop)
+                direction = ("Long" if stop < entry
+                             else "Short")
                 dollar_risk = rps * pv
-                contracts = max(1,
-                    int(max_risk/dollar_risk)) if dollar_risk > 0 else 1
+                contracts   = max(1, int(
+                    max_risk/dollar_risk
+                )) if dollar_risk > 0 else 1
 
-                t1 = round(entry+rps if direction=="Long"
-                           else entry-rps, 2)
-                t2 = round(entry+rps*2 if direction=="Long"
-                           else entry-rps*2, 2)
-                t3 = round(entry+rps*3 if direction=="Long"
-                           else entry-rps*3, 2)
+                t1 = round(
+                    entry+rps if direction=="Long"
+                    else entry-rps, 2)
+                t2 = round(
+                    entry+rps*2 if direction=="Long"
+                    else entry-rps*2, 2)
+                t3 = round(
+                    entry+rps*3 if direction=="Long"
+                    else entry-rps*3, 2)
 
                 st.markdown(card(
                     f'<b style="color:#333;">'
                     f'{direction} — {contracts} contract(s)'
                     f'</b><br>'
-                    f'<span style="color:#666;font-size:12px;">'
+                    f'<span style="color:#666;'
+                    f'font-size:12px;">'
                     f'Risk/contract: ${dollar_risk:.2f} | '
-                    f'Total risk: ${dollar_risk*contracts:.2f}'
+                    f'Total: ${dollar_risk*contracts:.2f}'
                     f'</span><br><br>'
                     f'<span style="color:#CC0000;">'
                     f'1:1 → {t1:.2f} '
-                    f'(+${dollar_risk*contracts:.0f})</span><br>'
+                    f'(+${dollar_risk*contracts:.0f})'
+                    f'</span><br>'
                     f'<span style="color:#FF8C00;">'
                     f'1:2 → {t2:.2f} '
-                    f'(+${dollar_risk*contracts*2:.0f})</span><br>'
+                    f'(+${dollar_risk*contracts*2:.0f})'
+                    f'</span><br>'
                     f'<span style="color:#0066CC;">'
                     f'1:3 → {t3:.2f} '
-                    f'(+${dollar_risk*contracts*3:.0f})</span>'
+                    f'(+${dollar_risk*contracts*3:.0f})'
+                    f'</span>'
                 ), unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════════════════
@@ -750,18 +769,16 @@ def main():
                 )
             with sv2:
                 st.markdown("**News Signal (40% weight)**")
-                combined = report.get("sentiment_score",50) or 50
-                news_sc  = max(10, min(90,
-                    round((combined - vix_score*0.6)/0.4)
-                )) if combined else 49
-                if news_sc <= 0 or news_sc > 100:
-                    news_sc = 49
+                combined = (report.get("sentiment_score",50)
+                            or 50)
+                raw_news = ((combined - vix_score*0.6)/0.4)
+                news_sc  = max(10, min(90, round(raw_news)))
                 st.markdown(
                     f'<p style="color:#333;font-size:18px;'
                     f'font-weight:bold;">'
                     f'{news_sc}/100</p>'
                     f'<p style="color:#666;font-size:12px;">'
-                    f'VADER sentiment from headlines</p>',
+                    f'VADER sentiment</p>',
                     unsafe_allow_html=True
                 )
 
@@ -802,41 +819,32 @@ def main():
             total_today  = int(today_t[0] or 0)
             wins_today   = int(today_t[1] or 0)
             today_losses = total_today - wins_today
-        hi_behaviors = sum(1 for b in today_b
-                           if b[1]=="High")
+        hi_behaviors = sum(
+            1 for b in today_b if b[1]=="High")
 
         if today_losses >= 2 or hi_behaviors >= 3:
-            state_color = "#CC0000"
-            state_text  = "🔴 STOP TRADING"
-            state_desc  = (
-                f"{today_losses} losses + "
-                f"behavioral issues. Close platform now."
-            )
+            sc = "#CC0000"; st_txt = "🔴 STOP TRADING"
+            st_desc = (f"{today_losses} losses today. "
+                       f"Close platform now.")
         elif today_losses >= 1 or hi_behaviors >= 2:
-            state_color = "#FF6600"
-            state_text  = "🟠 TILT RISK"
-            state_desc  = ("Elevated risk. "
-                           "Minimum size only.")
+            sc = "#FF6600"; st_txt = "🟠 TILT RISK"
+            st_desc = "Elevated risk. Minimum size."
         elif hi_behaviors >= 1:
-            state_color = "#FF8C00"
-            state_text  = "🟡 ELEVATED"
-            state_desc  = ("Minor issues. "
-                           "Trade with caution.")
+            sc = "#FF8C00"; st_txt = "🟡 ELEVATED"
+            st_desc = "Minor issues. Trade with caution."
         else:
-            state_color = "#0066CC"
-            state_text  = "🟢 NORMAL"
-            state_desc  = "No behavioral concerns today."
+            sc = "#0066CC"; st_txt = "🟢 NORMAL"
+            st_desc = "No behavioral concerns today."
 
         st.markdown(
             f"""
-            <div style='background:{state_color}15;
-            padding:14px;border-radius:8px;
-            border-left:4px solid {state_color};
+            <div style='background:{sc}15;padding:14px;
+            border-radius:8px;border-left:4px solid {sc};
             margin-bottom:12px;'>
-            <p style='color:{state_color};font-size:18px;
-            font-weight:bold;margin:0;'>{state_text}</p>
+            <p style='color:{sc};font-size:18px;
+            font-weight:bold;margin:0;'>{st_txt}</p>
             <p style='color:#333;font-size:13px;
-            margin:4px 0 0;'>{state_desc}</p>
+            margin:4px 0 0;'>{st_desc}</p>
             </div>
             """,
             unsafe_allow_html=True
@@ -849,7 +857,8 @@ def main():
             st.subheader("📋 Morning Brief")
 
             if events_b:
-                st.markdown("**Your patterns — last 30 days:**")
+                st.markdown(
+                    "**Your patterns — last 30 days:**")
                 for e in events_b[:5]:
                     cost  = float(e[2] or 0)
                     count = int(e[1])
@@ -873,8 +882,7 @@ def main():
                         <span style='color:{color};
                         font-size:12px;margin-left:12px;'>
                         ${cost:+.0f}</span>
-                        </span>
-                        </div>
+                        </span></div>
                         """,
                         unsafe_allow_html=True
                     )
@@ -884,15 +892,16 @@ def main():
             st.markdown("**Today's warnings:**")
             shown = 0
 
-            revenge = next((e for e in events_b
-                            if e[0]=="Revenge Trading"),None)
+            revenge = next(
+                (e for e in events_b
+                 if e[0]=="Revenge Trading"), None)
             if revenge and int(revenge[1]) >= 1:
                 st.markdown(
                     f"""<div style='background:#FFE8E8;
                     padding:8px 12px;border-radius:6px;
                     margin-bottom:4px;'>
                     🔴 <b>Revenge trading</b>
-                    ({int(revenge[1])}x in 30 days)<br>
+                    ({int(revenge[1])}x)<br>
                     <span style='color:#666;font-size:12px;'>
                     After ANY loss → 30 min break
                     </span></div>""",
@@ -900,34 +909,18 @@ def main():
                 )
                 shown += 1
 
-            fomo = next((e for e in events_b
-                         if e[0]=="FOMO"),None)
+            fomo = next(
+                (e for e in events_b
+                 if e[0]=="FOMO"), None)
             if fomo and int(fomo[1]) >= 1:
                 st.markdown(
                     f"""<div style='background:#FFE8E8;
                     padding:8px 12px;border-radius:6px;
                     margin-bottom:4px;'>
                     🔴 <b>FOMO pattern</b>
-                    ({int(fomo[1])}x in 30 days)<br>
+                    ({int(fomo[1])}x)<br>
                     <span style='color:#666;font-size:12px;'>
                     Check system BEFORE every trade
-                    </span></div>""",
-                    unsafe_allow_html=True
-                )
-                shown += 1
-
-            rapid = next((e for e in events_b
-                          if e[0] in ["Greed",
-                                      "Rapid Reentry"]),None)
-            if rapid and int(rapid[1]) >= 1:
-                st.markdown(
-                    f"""<div style='background:#FFF3CD;
-                    padding:8px 12px;border-radius:6px;
-                    margin-bottom:4px;'>
-                    🟡 <b>Quick reentry</b>
-                    ({int(rapid[1])}x in 30 days)<br>
-                    <span style='color:#666;font-size:12px;'>
-                    Loss→30 min | Win→15 min
                     </span></div>""",
                     unsafe_allow_html=True
                 )
@@ -940,11 +933,11 @@ def main():
                 st.markdown("**Score trend:**")
                 vals  = [int(s[0]) for s in
                          reversed(scores_b)]
-                dates = [str(s[2]) for s in
+                dts   = [str(s[2]) for s in
                          reversed(scores_b)]
                 fig = go.Figure()
                 fig.add_trace(go.Scatter(
-                    x=dates, y=vals,
+                    x=dts, y=vals,
                     mode="lines+markers",
                     line=dict(color="#0066CC",width=2),
                     marker=dict(size=6)
@@ -959,7 +952,7 @@ def main():
                 st.plotly_chart(fig,
                     use_container_width=True)
 
-        # Quick trade log
+        # Trade log form
         with col_log:
             st.subheader("📝 Log a Trade")
             st.caption("45 seconds — log every trade")
@@ -968,8 +961,7 @@ def main():
                          clear_on_submit=True):
                 fc1,fc2 = st.columns(2)
                 t_ticker = fc1.selectbox("Ticker",
-                    ["NQ","ES","SPY","QQQ",
-                     "MNQ","MES"])
+                    ["NQ","ES","SPY","QQQ","MNQ","MES"])
                 t_acct = fc2.selectbox("Account",
                     ["Live","Topstep","Combine","Paper"])
 
@@ -998,9 +990,11 @@ def main():
                     min_value=1, max_value=10, value=5)
 
                 fc8,fc9 = st.columns(2)
-                t_plan    = fc8.radio("Followed plan?",
+                t_plan = fc8.radio(
+                    "Followed plan?",
                     ["Yes","No"], horizontal=True)
-                t_checked = fc9.radio("Checked system?",
+                t_checked = fc9.radio(
+                    "Checked system?",
                     ["Yes","No"], horizontal=True)
 
                 t_mistake = st.text_input(
@@ -1018,24 +1012,24 @@ def main():
                     pv = pv_map.get(t_ticker, 1)
 
                     if t_dir == "Long":
-                        pnl = (t_exit-t_entry) * pv
+                        pnl = (t_exit - t_entry) * pv
                     else:
-                        pnl = (t_entry-t_exit) * pv
+                        pnl = (t_entry - t_exit) * pv
 
                     outcome = ("Win" if pnl > 0
                                else "Loss" if pnl < 0
                                else "Scratch")
-
-                    risk = abs(t_entry - t_stop)
+                    risk  = abs(t_entry - t_stop)
                     pnl_r = round(
-                        pnl/(risk*pv),2
+                        pnl/(risk*pv), 2
                     ) if risk > 0 else 0
 
-                    # Check rapid reentry
+                    # Rapid reentry check
                     reentry_warning = None
                     try:
                         with engine.connect() as conn:
-                            last_t = conn.execute(text("""
+                            last_t = conn.execute(
+                                text("""
                                 SELECT created_at, pnl
                                 FROM trade_journal
                                 WHERE market='US'
@@ -1047,28 +1041,25 @@ def main():
                             }).fetchone()
 
                         if last_t:
-                            import pytz as tz
-                            utc  = tz.utc
+                            utc  = pytz.utc
                             mins = abs((
                                 datetime.now(utc) -
                                 last_t[0]
                             ).total_seconds()) / 60
                             prev = float(last_t[1])
                             if prev < 0 and mins < 30:
-                                remaining = round(30-mins)
+                                rem = round(30-mins)
                                 reentry_warning = (
-                                    f"⛔ Only {mins:.0f} min "
+                                    f"⛔ Only {mins:.0f}min "
                                     f"since last LOSS. "
-                                    f"Wait {remaining} more "
-                                    f"min (30 min required)."
+                                    f"Wait {rem} more min."
                                 )
                             elif mins < 15:
-                                remaining = round(15-mins)
+                                rem = round(15-mins)
                                 reentry_warning = (
-                                    f"⚠️ Only {mins:.0f} min "
+                                    f"⚠️ Only {mins:.0f}min "
                                     f"since last trade. "
-                                    f"Wait {remaining} more "
-                                    f"min (15 min minimum)."
+                                    f"Wait {rem} more min."
                                 )
                     except:
                         pass
@@ -1078,7 +1069,8 @@ def main():
                     else:
                         try:
                             with engine.connect() as conn:
-                                rpt = conn.execute(text("""
+                                rpt = conn.execute(
+                                    text("""
                                     SELECT matrix_score,bias
                                     FROM intelligence_reports
                                     WHERE market='US'
@@ -1101,7 +1093,8 @@ def main():
                                         account_type,
                                         direction,setup_type,
                                         entry_price,
-                                        exit_price,stop_price,
+                                        exit_price,
+                                        stop_price,
                                         pnl,pnl_r,
                                         matrix_score,
                                         bias_today,
@@ -1114,31 +1107,32 @@ def main():
                                         'US',:td,:tt,
                                         :ticker,:acct,
                                         :dir,:setup,
-                                        :entry,:exit,:stop,
+                                        :entry,:exit,
+                                        :stop,
                                         :pnl,:pnl_r,
                                         :ms,:bias,
                                         :emotion,:plan,
                                         :mistake,
                                         :checked,:gate)
                                 """), {
-                                    "td":     str(date.today()),
-                                    "tt":     datetime.now(EST
+                                    "td":  str(date.today()),
+                                    "tt":  datetime.now(EST
                                         ).strftime("%H:%M"),
-                                    "ticker": t_ticker,
-                                    "acct":   t_acct,
-                                    "dir":    t_dir,
-                                    "setup":  t_setup,
-                                    "entry":  t_entry,
-                                    "exit":   t_exit,
-                                    "stop":   t_stop,
-                                    "pnl":    round(pnl,2),
-                                    "pnl_r":  pnl_r,
-                                    "ms":     ms,
-                                    "bias":   bias,
-                                    "emotion":t_emotion,
-                                    "plan":   t_plan=="Yes",
-                                    "mistake":t_mistake,
-                                    "checked":t_checked=="Yes",
+                                    "ticker":  t_ticker,
+                                    "acct":    t_acct,
+                                    "dir":     t_dir,
+                                    "setup":   t_setup,
+                                    "entry":   t_entry,
+                                    "exit":    t_exit,
+                                    "stop":    t_stop,
+                                    "pnl":     round(pnl,2),
+                                    "pnl_r":   pnl_r,
+                                    "ms":      ms,
+                                    "bias":    bias,
+                                    "emotion": t_emotion,
+                                    "plan":    t_plan=="Yes",
+                                    "mistake": t_mistake,
+                                    "checked": t_checked=="Yes",
                                     "gate": (
                                         t_plan=="Yes" and
                                         t_checked=="Yes")
@@ -1183,8 +1177,8 @@ def main():
                     <b style='color:{color};'>{b[0]}</b>
                     <span style='color:#666;font-size:12px;
                     margin-left:8px;'>
-                    {b[1]} — {int(b[2])}x today</span>
-                    </div>
+                    {b[1]} — {int(b[2])}x today
+                    </span></div>
                     """,
                     unsafe_allow_html=True
                 )
@@ -1193,9 +1187,11 @@ def main():
         st.subheader("📊 Trade Journal")
 
         col_f1,col_f2 = st.columns(2)
-        days_filter = col_f1.selectbox("Period",
+        days_filter = col_f1.selectbox(
+            "Period",
             ["Today","Last 7 days","Last 30 days"])
-        acct_filter = col_f2.selectbox("Account",
+        acct_filter = col_f2.selectbox(
+            "Account",
             ["All","Live","Topstep","Combine","Paper"])
 
         days_map = {"Today":1,"Last 7 days":7,
@@ -1219,7 +1215,9 @@ def main():
             sm2.metric("Win Rate",  f"{wr}%")
             sm3.metric("Total P&L", f"${total_pnl:+.2f}")
             sm4.metric("Avg Emotion",
-                round(sum(int(t[8]) for t in trades)/total,1))
+                round(sum(
+                    int(t[8]) for t in trades
+                )/total, 1))
 
             st.divider()
             for t in trades[:20]:
@@ -1229,7 +1227,8 @@ def main():
                          else "#CC0000" if pnl < 0
                          else "#888")
                 em    = ("✅" if pnl > 0
-                         else "❌" if pnl < 0 else "➖")
+                         else "❌" if pnl < 0
+                         else "➖")
                 plan  = "✓" if t[9] else "✗"
                 st.markdown(
                     f"""
@@ -1241,25 +1240,26 @@ def main():
                     justify-content:space-between;'>
                     <span><b style='color:#333;'>
                     {em} {t[2]} {t[3]}</b>
-                    <span style='color:#888;font-size:12px;
-                    margin-left:8px;'>
-                    {t[0]} {t[1] or ''} • {t[10] or ''}
-                    • {t[12] or ''}</span></span>
+                    <span style='color:#888;
+                    font-size:12px;margin-left:8px;'>
+                    {t[0]} {t[1] or ''} •
+                    {t[10] or ''} • {t[12] or ''}
+                    </span></span>
                     <b style='color:{color};'>
-                    ${pnl:+.2f} ({pnl_r:+.2f}R)</b>
-                    </div>
+                    ${pnl:+.2f} ({pnl_r:+.2f}R)
+                    </b></div>
                     <div style='color:#888;font-size:11px;
                     margin-top:4px;'>
-                    {float(t[4]):.2f} → {float(t[5]):.2f}
-                    • Emotion:{t[8]}/10 • Plan:{plan}
+                    {float(t[4]):.2f} →
+                    {float(t[5]):.2f} •
+                    Emotion:{t[8]}/10 • Plan:{plan}
                     {f"• ⚠️ {t[11]}" if t[11] else ""}
                     </div></div>
                     """,
                     unsafe_allow_html=True
                 )
         else:
-            st.info("No trades logged yet. "
-                    "Use the form above.")
+            st.info("No trades logged yet.")
 
         # Money leaks
         st.divider()
@@ -1276,6 +1276,7 @@ def main():
                     AND event_date >= :start
                     GROUP BY behavior_type
                     ORDER BY cost ASC
+                    LIMIT 10
                 """), {"start":str(start_30)}).fetchall()
 
             if leaks:
@@ -1303,7 +1304,8 @@ def main():
                         <span style='color:#333;
                         font-weight:bold;'>{l[0]}</span>
                         <span style='color:{color};
-                        font-weight:bold;'>${cost:+.0f}
+                        font-weight:bold;'>
+                        ${cost:+.0f}
                         <span style='color:#888;
                         font-size:11px;
                         font-weight:normal;'>
@@ -1314,8 +1316,8 @@ def main():
                         margin-top:4px;'>
                         <div style='background:{color};
                         width:{pct:.0f}%;height:4px;
-                        border-radius:3px;'></div>
-                        </div></div>
+                        border-radius:3px;'>
+                        </div></div></div>
                         """,
                         unsafe_allow_html=True
                     )
@@ -1331,17 +1333,22 @@ def main():
         if log_df.empty:
             st.info("No forward test data yet.")
         else:
-            total_d  = len(log_df)
-            correct  = log_df["correct"].sum()
-            wr_days  = round(
-                correct/total_d*100,1) if total_d > 0 else 0
+            total_d = len(log_df)
+            correct = log_df["correct"].sum()
+            wr_days = round(
+                correct/total_d*100,1
+            ) if total_d > 0 else 0
+
             fl1,fl2,fl3 = st.columns(3)
             fl1.metric("Days Tested", total_d)
             fl2.metric("Correct",     int(correct))
             fl3.metric("Accuracy",    f"{wr_days}%")
+
             st.dataframe(
-                log_df[["date","predicted","actual",
-                         "return","correct","score"]],
+                log_df[[
+                    "date","predicted","actual",
+                    "return","correct","score"
+                ]],
                 use_container_width=True
             )
 
@@ -1366,23 +1373,25 @@ def main():
                 tables = {
                     "price_data":           "Price rows",
                     "vix_data":             "VIX rows",
-                    "economic_events":      "Economic events",
-                    "news_headlines":       "News headlines",
-                    "sentiment_scores":     "Sentiment scores",
+                    "economic_events":      "Events",
+                    "news_headlines":       "Headlines",
+                    "sentiment_scores":     "Sentiment",
                     "intelligence_reports": "Reports",
                     "learning_log":         "Learning log",
                     "trade_journal":        "Trade journal",
-                    "behavioral_events":    "Behavioral events",
-                    "behavioral_scores":    "Behavioral scores"
+                    "behavioral_events":    "Behavioral",
+                    "behavioral_scores":    "B. Scores"
                 }
                 cols = st.columns(4)
                 i = 0
                 for table, label in tables.items():
                     try:
                         r = conn.execute(text(
-                            f"SELECT COUNT(*) FROM {table}"))
+                            f"SELECT COUNT(*) "
+                            f"FROM {table}"))
                         count = r.fetchone()[0]
-                        cols[i%4].metric(label, f"{count:,}")
+                        cols[i%4].metric(
+                            label, f"{count:,}")
                     except:
                         cols[i%4].metric(label, "N/A")
                     i += 1
@@ -1392,13 +1401,20 @@ def main():
         st.divider()
         st.markdown("### Layer Status")
         layers = {
-            "Layer 1 — Data Pipeline":      "✅ Railway 24/7",
-            "Layer 2 — ML Matrix Engine":   "✅ Kaggle daily",
-            "Layer 3 — Decision Support":   "✅ Complete",
-            "Layer 4 — Risk Advisory":      "✅ Complete",
-            "Layer 5 — Trade Execution":    "✅ Complete",
-            "Layer 6 — Portal":             "✅ Live",
-            "Layer 7 — Behavioral Intel":   "✅ Complete"
+            "Layer 1 — Data Pipeline":
+                "✅ Railway 24/7",
+            "Layer 2 — ML Matrix Engine":
+                "✅ Kaggle daily",
+            "Layer 3 — Decision Support":
+                "✅ Complete",
+            "Layer 4 — Risk Advisory":
+                "✅ Complete",
+            "Layer 5 — Trade Execution":
+                "✅ Complete",
+            "Layer 6 — Portal":
+                "✅ Live",
+            "Layer 7 — Behavioral Intel":
+                "✅ Complete"
         }
         for layer, status in layers.items():
             st.markdown(f"**{layer}:** {status}")
