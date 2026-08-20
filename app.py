@@ -311,47 +311,44 @@ def main():
             score = report.get("matrix_score",50)
             conf  = report.get("confidence","Low")
             tp    = report.get("trade_prob",45)
-
             c1,c2,c3,c4 = st.columns(4)
 
-        with c1:
-            color = bias_color(bias)
-            if bias == "Bullish" and score >= 65:
-                forecast = "Bullish"
-                f_desc   = "Strong upside expected"
-            elif bias == "Bullish":
-                forecast = "Bullish"
-                f_desc   = "Mild upside expected"
-            elif bias == "Bearish" and score <= 35:
-                forecast = "Bearish"
-                f_desc   = "Strong downside expected"
-            elif bias == "Bearish":
-                forecast = "Bearish"
-                f_desc   = "Mild downside expected"
-            elif 43 <= score <= 57:
-                forecast = "Range Bound"
-                color    = "#888888"
-                f_desc   = "No clear direction"
-            else:
-                forecast = "Neutral"
-                color    = "#FF8C00"
-                f_desc   = "Low conviction day"
+            with c1:
+                color = bias_color(bias)
+                if bias == "Bullish" and score >= 65:
+                    forecast = "Bullish"
+                    f_desc   = "Strong upside expected"
+                elif bias == "Bullish":
+                    forecast = "Bullish"
+                    f_desc   = "Mild upside expected"
+                elif bias == "Bearish" and score <= 35:
+                    forecast = "Bearish"
+                    f_desc   = "Strong downside expected"
+                elif bias == "Bearish":
+                    forecast = "Bearish"
+                    f_desc   = "Mild downside expected"
+                elif 43 <= score <= 57:
+                    forecast  = "Range Bound"
+                    color     = "#888888"
+                    f_desc    = "No clear direction"
+                else:
+                    forecast  = "Neutral"
+                    color     = "#FF8C00"
+                    f_desc    = "Low conviction day"
 
-            st.markdown(card(
-                f'<p style="color:#666;margin:0;'
-                f'font-size:11px;letter-spacing:1px;">'
-                f'TODAY\'S FORECAST</p>'
-                f'<p style="color:{color};margin:4px 0 2px;'
-                f'font-size:24px;font-weight:bold;">'
-                f'{bias_emoji(bias)} {forecast}</p>'
-                f'<p style="color:#888;margin:0;'
-                f'font-size:11px;">{f_desc}</p>'
-                f'<p style="color:#aaa;margin:2px 0 0;'
-                f'font-size:10px;">{conf} confidence'
-                f' • {score}/100</p>',
-                border_color=color
-            ), unsafe_allow_html=True)
-            
+                st.markdown(card(
+                    f'<p style="color:#666;margin:0;'
+                    f'font-size:11px;">TODAY\'S FORECAST</p>'
+                    f'<p style="color:{color};margin:4px 0 2px;'
+                    f'font-size:22px;font-weight:bold;">'
+                    f'{bias_emoji(bias)} {forecast}</p>'
+                    f'<p style="color:#888;margin:0;'
+                    f'font-size:11px;">{f_desc}</p>'
+                    f'<p style="color:#aaa;margin:2px 0 0;'
+                    f'font-size:10px;">{conf} • {score}/100</p>',
+                    border_color=color
+                ), unsafe_allow_html=True)
+
             with c2:
                 st.markdown(card(
                     f'<p style="color:#666;margin:0;'
