@@ -779,7 +779,7 @@ def main():
                          else 25)
             sv1,sv2 = st.columns(2)
             with sv1:
-                st.markdown("**VIX Signal (60% weight)**")
+                st.markdown("**VIX Signal (35% weight)**")
                 vix_col = ("#0066CC" if vix < 15
                            else "#CC0000" if vix >= 25
                            else "#FF8C00")
@@ -790,7 +790,7 @@ def main():
                     unsafe_allow_html=True
                 )
             with sv2:
-                st.markdown("**News Signal (40% weight)**")
+                st.markdown("**News Signal (65% weight)**")
                 combined = (report.get("sentiment_score",50)
                             or 50)
                 raw_news = ((combined - vix_score*0.6)/0.4)
