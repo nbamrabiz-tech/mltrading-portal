@@ -745,7 +745,7 @@ def main():
     # ══════════════════════════════════════════════════════════
     # TAB 4 — SENTIMENT
     # ══════════════════════════════════════════════════════════
-        with tabs[3]:
+    with tabs[3]:
         st.subheader("😊 Market Sentiment")
         report = get_latest_report()
         events = get_todays_events()
