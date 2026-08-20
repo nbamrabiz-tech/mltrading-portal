@@ -313,7 +313,8 @@ def main():
             tp    = report.get("trade_prob",45)
 
             c1,c2,c3,c4 = st.columns(4)
-            with  c1:
+
+        with c1:
             color = bias_color(bias)
             if bias == "Bullish" and score >= 65:
                 forecast = "Bullish"
