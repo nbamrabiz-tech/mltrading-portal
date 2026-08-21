@@ -1,5 +1,6 @@
 # ══════════════════════════════════════════════════════════════
-# MLTrading System — Portal v3
+# MLTrading System — Portal v4
+# Probability-based display
 # ══════════════════════════════════════════════════════════════
 
 import streamlit as st
@@ -97,9 +98,9 @@ def get_spy_levels():
                 AND DATE(timestamp) < :td
                 ORDER BY ticker, timestamp DESC
             """), {"td": str(today)})
-            rows   = result.fetchall()
+            rows = result.fetchall()
             levels = {}
-            seen   = set()
+            seen = set()
             for r in rows:
                 if r[0] not in seen:
                     levels[r[0]] = {
@@ -129,12 +130,12 @@ def get_learning_log_deduped():
             rows = result.fetchall()
             if rows:
                 return pd.DataFrame(rows,
-                    columns=["date","predicted","actual",
-                             "return","correct","score"])
+                    columns=["date","predicted",
+                             "actual","return",
+                             "correct","score"])
     except:
         pass
     return pd.DataFrame()
-
 
 def get_trade_journal(days_back=30):
     start = date.today() - timedelta(days=days_back)
@@ -172,8 +173,7 @@ def get_behavioral_data():
                 WHERE market='US'
                 AND event_date >= :start
                 GROUP BY behavior_type
-                ORDER BY cnt DESC
-                LIMIT 10
+                ORDER BY cnt DESC LIMIT 10
             """), {"start": str(start)}).fetchall()
 
             scores = conn.execute(text("""
@@ -211,29 +211,26 @@ def get_behavioral_data():
         return [], [], [], None
 
 # ── Style helpers ─────────────────────────────────────────────
-def bias_color(bias):
-    if not bias: return "#666"
-    if "Bullish" in str(bias): return "#0066CC"
-    if "Bearish" in str(bias): return "#CC0000"
+def prob_color(pct, type="up"):
+    if type == "up":
+        if pct >= 65: return "#0066CC"
+        if pct >= 50: return "#4488BB"
+        return "#888888"
+    elif type == "down":
+        if pct >= 50: return "#CC0000"
+        if pct >= 35: return "#BB4444"
+        return "#888888"
+    else:
+        if pct >= 55: return "#FF8C00"
+        return "#888888"
+
+def edge_color(edge):
+    if "Strong Long" in edge:  return "#0066CC"
+    if "Long Bias"   in edge:  return "#4488BB"
+    if "Strong Short" in edge: return "#CC0000"
+    if "Short Bias"  in edge:  return "#BB4444"
+    if "Range"       in edge:  return "#FF8C00"
     return "#888888"
-
-def bias_emoji(bias):
-    if not bias: return "⚪"
-    if "Bullish" in str(bias): return "🟢"
-    if "Bearish" in str(bias): return "🔴"
-    return "⚪"
-
-def score_bar(score, width=200):
-    color = ("#0066CC" if score >= 58
-             else "#CC0000" if score <= 42
-             else "#FF8C00")
-    return (
-        f'<div style="background:#E8E8E8;'
-        f'border-radius:4px;width:{width}px;height:8px;">'
-        f'<div style="background:{color};'
-        f'width:{min(score,100)}%;height:8px;'
-        f'border-radius:4px;"></div></div>'
-    )
 
 def card(content, border_color="#0066CC"):
     return (
@@ -244,6 +241,16 @@ def card(content, border_color="#0066CC"):
         f'{content}</div>'
     )
 
+def prob_bar(pct, color, width=150):
+    return (
+        f'<div style="background:#E8E8E8;'
+        f'border-radius:4px;width:{width}px;'
+        f'height:8px;margin-top:4px;">'
+        f'<div style="background:{color};'
+        f'width:{min(pct,100)}%;height:8px;'
+        f'border-radius:4px;"></div></div>'
+    )
+
 # ── Main ──────────────────────────────────────────────────────
 def main():
     now_est = datetime.now(EST)
@@ -252,7 +259,8 @@ def main():
     st.markdown(
         f"""
         <div style='text-align:center;padding:8px 0;'>
-        <h1 style='color:#0066CC;margin:0;font-size:26px;'>
+        <h1 style='color:#0066CC;margin:0;
+        font-size:26px;'>
         📊 MLTrading Intelligence
         </h1>
         <p style='color:#888;margin:0;font-size:12px;'>
@@ -291,97 +299,142 @@ def main():
                 )
 
         if not report:
-            st.warning("No report found. "
-                       "Run morning script first.")
+            st.warning(
+                "No report found. "
+                "Run morning script first.")
         else:
-            bias  = report.get("bias","Neutral")
-            score = report.get("matrix_score",50)
-            conf  = report.get("confidence","Low")
-            tp    = report.get("trade_prob",45)
+            # Pull probability data
+            # matrix_score stores up_pct
+            up_pct    = report.get("matrix_score",33) or 33
+            tp        = report.get("trade_prob",45) or 45
+            bias      = report.get("bias","Neutral") or "Neutral"
+            conf      = report.get("confidence","No Edge") or "No Edge"
+            ie        = report.get("is_event_day",False)
+
+            # Estimate down/range from bias
+            if "Bullish" in str(bias):
+                down_pct  = max(5,  100-up_pct-20)
+                range_pct = max(10, 100-up_pct-down_pct)
+            elif "Bearish" in str(bias):
+                down_pct  = up_pct
+                up_pct    = max(5, 100-down_pct-30)
+                range_pct = max(10, 100-up_pct-down_pct)
+            else:
+                down_pct  = 25
+                range_pct = 100-up_pct-down_pct
+
+            reaction  = report.get("reaction_type","") or ""
+            narrative_hl = report.get(
+                "narrative_headline","") or ""
+
+            # Dominant outcome display
+            if up_pct >= 65:
+                dominant = "UPTREND"
+                dom_color = "#0066CC"
+                dom_emoji = "📈"
+            elif down_pct >= 50:
+                dominant = "DOWNTREND"
+                dom_color = "#CC0000"
+                dom_emoji = "📉"
+            elif range_pct >= 55:
+                dominant = "RANGE BOUND"
+                dom_color = "#FF8C00"
+                dom_emoji = "➡️"
+            elif up_pct >= 50:
+                dominant = "MILD UPTREND"
+                dom_color = "#4488BB"
+                dom_emoji = "📈"
+            elif down_pct >= 40:
+                dominant = "MILD DOWNTREND"
+                dom_color = "#BB4444"
+                dom_emoji = "📉"
+            else:
+                dominant = "NO CLEAR EDGE"
+                dom_color = "#888888"
+                dom_emoji = "⚪"
+
+            # Top banner
+            st.markdown(
+                f"""
+                <div style='background:{dom_color}15;
+                padding:16px;border-radius:8px;
+                border-left:4px solid {dom_color};
+                margin-bottom:16px;text-align:center;'>
+                <p style='color:{dom_color};
+                font-size:28px;font-weight:bold;
+                margin:0;'>{dom_emoji} {dominant}</p>
+                <p style='color:#666;font-size:13px;
+                margin:4px 0 0;'>{conf}</p>
+                </div>
+                """,
+                unsafe_allow_html=True
+            )
+
+            # Four metric cards
             c1,c2,c3,c4 = st.columns(4)
 
             with c1:
-                color = bias_color(bias)
-                if bias == "Bullish" and score >= 65:
-                    forecast = "Bullish"
-                    f_desc   = "Strong upside expected"
-                elif bias == "Bullish":
-                    forecast = "Bullish"
-                    f_desc   = "Mild upside expected"
-                elif bias == "Bearish" and score <= 35:
-                    forecast = "Bearish"
-                    f_desc   = "Strong downside expected"
-                elif bias == "Bearish":
-                    forecast = "Bearish"
-                    f_desc   = "Mild downside expected"
-                elif 43 <= score <= 57:
-                    forecast  = "Range Bound"
-                    color     = "#888888"
-                    f_desc    = "No clear direction"
-                else:
-                    forecast  = "Neutral"
-                    color     = "#FF8C00"
-                    f_desc    = "Low conviction day"
-
+                up_c = prob_color(up_pct,"up")
                 st.markdown(card(
                     f'<p style="color:#666;margin:0;'
-                    f'font-size:11px;">TODAY\'S FORECAST</p>'
-                    f'<p style="color:{color};margin:4px 0 2px;'
-                    f'font-size:22px;font-weight:bold;">'
-                    f'{bias_emoji(bias)} {forecast}</p>'
-                    f'<p style="color:#888;margin:0;'
-                    f'font-size:11px;">{f_desc}</p>'
-                    f'<p style="color:#aaa;margin:2px 0 0;'
-                    f'font-size:10px;">{conf} • {score}/100</p>',
-                    border_color=color
+                    f'font-size:11px;">📈 UPTREND</p>'
+                    f'<p style="color:{up_c};'
+                    f'margin:4px 0 2px;font-size:28px;'
+                    f'font-weight:bold;">{up_pct}%</p>'
+                    + prob_bar(up_pct, up_c),
+                    border_color=up_c
                 ), unsafe_allow_html=True)
 
             with c2:
+                dn_c = prob_color(down_pct,"down")
                 st.markdown(card(
                     f'<p style="color:#666;margin:0;'
-                    f'font-size:11px;">MATRIX SCORE</p>'
-                    f'<p style="color:#333;margin:4px 0 4px;'
-                    f'font-size:22px;font-weight:bold;">'
-                    f'{score}/100</p>'
-                    + score_bar(score)
+                    f'font-size:11px;">📉 DOWNTREND</p>'
+                    f'<p style="color:{dn_c};'
+                    f'margin:4px 0 2px;font-size:28px;'
+                    f'font-weight:bold;">{down_pct}%</p>'
+                    + prob_bar(down_pct, dn_c),
+                    border_color=dn_c
                 ), unsafe_allow_html=True)
 
             with c3:
-                tp_color = ("#0066CC" if tp >= 65
-                            else "#CC0000" if tp <= 40
-                            else "#FF8C00")
+                rn_c = prob_color(range_pct,"range")
                 st.markdown(card(
                     f'<p style="color:#666;margin:0;'
-                    f'font-size:11px;">TRADE PROBABILITY</p>'
-                    f'<p style="color:{tp_color};'
-                    f'margin:4px 0 4px;font-size:22px;'
-                    f'font-weight:bold;">{tp}%</p>'
-                    + score_bar(tp),
-                    border_color=tp_color
+                    f'font-size:11px;">➡️ RANGE</p>'
+                    f'<p style="color:{rn_c};'
+                    f'margin:4px 0 2px;font-size:28px;'
+                    f'font-weight:bold;">{range_pct}%</p>'
+                    + prob_bar(range_pct, rn_c),
+                    border_color=rn_c
                 ), unsafe_allow_html=True)
 
             with c4:
-                sent_score = report.get(
-                    "sentiment_score", 50) or 50
-                sent_color = ("#0066CC" if sent_score >= 60
-                              else "#CC0000"
-                              if sent_score <= 40
-                              else "#FF8C00")
-                sent_lbl   = ("Bullish" if sent_score >= 60
-                              else "Bearish"
-                              if sent_score <= 40
-                              else "Neutral")
+                tp_c = ("#0066CC" if tp >= 65
+                        else "#CC0000" if tp <= 35
+                        else "#FF8C00")
                 st.markdown(card(
                     f'<p style="color:#666;margin:0;'
-                    f'font-size:11px;">SENTIMENT</p>'
-                    f'<p style="color:{sent_color};'
-                    f'margin:4px 0 0;font-size:22px;'
-                    f'font-weight:bold;">'
-                    f'{sent_score}/100</p>'
-                    f'<p style="color:#888;margin:0;'
-                    f'font-size:11px;">{sent_lbl}</p>',
-                    border_color=sent_color
+                    f'font-size:11px;">TRADE PROB</p>'
+                    f'<p style="color:{tp_c};'
+                    f'margin:4px 0 2px;font-size:28px;'
+                    f'font-weight:bold;">{tp}%</p>'
+                    + prob_bar(tp, tp_c),
+                    border_color=tp_c
                 ), unsafe_allow_html=True)
+
+            # Edge + Action
+            ec = edge_color(conf)
+            st.markdown(card(
+                f'<p style="color:#666;font-size:11px;'
+                f'margin:0;">EDGE &nbsp;|&nbsp; ACTION</p>'
+                f'<p style="color:{ec};font-size:16px;'
+                f'font-weight:bold;margin:4px 0 2px;">'
+                f'{conf}</p>'
+                f'<p style="color:#333;font-size:13px;'
+                f'margin:0;">{reaction}</p>',
+                border_color=ec
+            ), unsafe_allow_html=True)
 
             st.divider()
 
@@ -389,98 +442,73 @@ def main():
 
             with col_l:
                 st.subheader("📰 Today's Narrative")
-                headline = report.get(
-                    "narrative_headline",
-                    "No narrative available")
-                ns = report.get("narrative_score",50)
-                ie = report.get("is_event_day",False)
                 st.markdown(card(
-                    f'<p style="color:#333;font-size:14px;'
-                    f'line-height:1.6;margin:0;">'
-                    f'{headline}</p>'
+                    f'<p style="color:#333;'
+                    f'font-size:14px;line-height:1.6;'
+                    f'margin:0;">{narrative_hl}</p>'
                 ), unsafe_allow_html=True)
-                m1,m2,m3 = st.columns(3)
-                m1.metric("Narrative Score", f"{ns}/100")
-                m2.metric("Event Day",
+                m1,m2 = st.columns(2)
+                m1.metric("Event Day",
                           "Yes ★★★" if ie else "No")
-                m3.metric("Volatility",
-                    report.get("volatility","Normal")
-                    or "Normal")
+                m2.metric("Trade Probability",
+                          f"{tp}%")
 
             with col_r:
-                st.subheader("🤖 ML Ensemble")
-                ml_score = report.get(
-                    "ml_ensemble_score",50)
-                ml_lean  = report.get(
-                    "ml_ensemble_lean","Neutral")
-                models = {
-                    "XGBoost":   report.get("xgb_score",50),
-                    "ARIMA":     report.get("arima_score",50),
-                    "LSTM":      report.get("lstm_score",50),
-                    "RandForest":report.get("rf_score",50),
-                    "GradBoost": report.get("gb_score",50)
-                }
-                for model, ms in models.items():
-                    cn,cb = st.columns([2,3])
-                    cn.markdown(
-                        f'<p style="color:#666;'
-                        f'font-size:12px;margin:2px 0;">'
-                        f'{model}</p>',
-                        unsafe_allow_html=True)
-                    cb.markdown(
-                        score_bar(ms or 50, width=120) +
-                        f'<p style="color:#888;'
-                        f'font-size:11px;margin:0;">'
-                        f'{ms}/100</p>',
-                        unsafe_allow_html=True)
-                st.markdown(
-                    f"**Ensemble: {ml_score}/100"
-                    f" — {ml_lean}**")
+                st.subheader("🕯️ First Candle")
+                spy_dir  = report.get(
+                    "spy_candle_dir","Awaiting") or "Awaiting"
+                spy_conv = report.get(
+                    "spy_candle_conv","") or ""
+                qqq_dir  = report.get(
+                    "qqq_candle_dir","Awaiting") or "Awaiting"
+                qqq_conv = report.get(
+                    "qqq_candle_conv","") or ""
+                div_sig  = report.get(
+                    "divergence_signal","") or ""
+
+                def candle_color(d):
+                    if "Bullish" in str(d):
+                        return "#0066CC"
+                    if "Bearish" in str(d):
+                        return "#CC0000"
+                    return "#888888"
+
+                cc1,cc2 = st.columns(2)
+                cc1.markdown(card(
+                    f'<p style="color:#666;'
+                    f'font-size:11px;margin:0;">'
+                    f'SPY</p>'
+                    f'<p style="color:'
+                    f'{candle_color(spy_dir)};'
+                    f'font-size:16px;'
+                    f'font-weight:bold;margin:4px 0 0;">'
+                    f'{spy_dir}</p>'
+                    f'<p style="color:#888;'
+                    f'font-size:11px;margin:0;">'
+                    f'{spy_conv}</p>',
+                    border_color=candle_color(spy_dir)
+                ), unsafe_allow_html=True)
+
+                cc2.markdown(card(
+                    f'<p style="color:#666;'
+                    f'font-size:11px;margin:0;">'
+                    f'QQQ</p>'
+                    f'<p style="color:'
+                    f'{candle_color(qqq_dir)};'
+                    f'font-size:16px;'
+                    f'font-weight:bold;margin:4px 0 0;">'
+                    f'{qqq_dir}</p>'
+                    f'<p style="color:#888;'
+                    f'font-size:11px;margin:0;">'
+                    f'{qqq_conv}</p>',
+                    border_color=candle_color(qqq_dir)
+                ), unsafe_allow_html=True)
+
+                if div_sig:
+                    st.warning(f"⚠️ {div_sig}")
 
             st.divider()
-            st.subheader("🕯️ First Candle")
-            cc1,cc2,cc3 = st.columns(3)
-
-            spy_dir  = report.get("spy_candle_dir","Unknown")
-            spy_conv = report.get("spy_candle_conv","")
-            spy_sc   = report.get("spy_candle_score",50)
-            qqq_dir  = report.get("qqq_candle_dir","Unknown")
-            qqq_conv = report.get("qqq_candle_conv","")
-            reaction = report.get("reaction_type","Unknown")
-
-            cc1.markdown(card(
-                f'<p style="color:#666;font-size:11px;'
-                f'margin:0;">SPY CANDLE</p>'
-                f'<p style="color:{bias_color(spy_dir)};'
-                f'font-size:18px;font-weight:bold;'
-                f'margin:4px 0 0;">{spy_dir}</p>'
-                f'<p style="color:#888;font-size:11px;'
-                f'margin:0;">{spy_conv} | {spy_sc}/100</p>',
-                border_color=bias_color(spy_dir)
-            ), unsafe_allow_html=True)
-
-            cc2.markdown(card(
-                f'<p style="color:#666;font-size:11px;'
-                f'margin:0;">QQQ CANDLE</p>'
-                f'<p style="color:{bias_color(qqq_dir)};'
-                f'font-size:18px;font-weight:bold;'
-                f'margin:4px 0 0;">{qqq_dir}</p>'
-                f'<p style="color:#888;font-size:11px;'
-                f'margin:0;">{qqq_conv}</p>',
-                border_color=bias_color(qqq_dir)
-            ), unsafe_allow_html=True)
-
-            cc3.markdown(card(
-                f'<p style="color:#666;font-size:11px;'
-                f'margin:0;">REACTION</p>'
-                f'<p style="color:#FF8C00;font-size:14px;'
-                f'font-weight:bold;margin:4px 0 0;">'
-                f'{reaction}</p>',
-                border_color="#FF8C00"
-            ), unsafe_allow_html=True)
-
-            st.divider()
-            st.subheader("📍 Key Intraday Levels")
+            st.subheader("📍 Key Levels")
             kc1,kc2 = st.columns(2)
 
             with kc1:
@@ -488,24 +516,24 @@ def main():
                 spy_lv = levels.get("SPY",{})
                 if spy_lv:
                     lk1,lk2,lk3 = st.columns(3)
-                    lk1.metric("Prev High",
-                               f"${spy_lv['pdh']:.2f}")
-                    lk2.metric("Prev Close",
-                               f"${spy_lv['pdc']:.2f}")
-                    lk3.metric("Prev Low",
-                               f"${spy_lv['pdl']:.2f}")
+                    lk1.metric("PDH",
+                        f"${spy_lv['pdh']:.2f}")
+                    lk2.metric("PDC",
+                        f"${spy_lv['pdc']:.2f}")
+                    lk3.metric("PDL",
+                        f"${spy_lv['pdl']:.2f}")
 
             with kc2:
                 st.markdown("**QQQ**")
                 qqq_lv = levels.get("QQQ",{})
                 if qqq_lv:
                     qk1,qk2,qk3 = st.columns(3)
-                    qk1.metric("Prev High",
-                               f"${qqq_lv['pdh']:.2f}")
-                    qk2.metric("Prev Close",
-                               f"${qqq_lv['pdc']:.2f}")
-                    qk3.metric("Prev Low",
-                               f"${qqq_lv['pdl']:.2f}")
+                    qk1.metric("PDH",
+                        f"${qqq_lv['pdh']:.2f}")
+                    qk2.metric("PDC",
+                        f"${qqq_lv['pdc']:.2f}")
+                    qk3.metric("PDL",
+                        f"${qqq_lv['pdl']:.2f}")
 
             if events:
                 st.divider()
@@ -517,19 +545,24 @@ def main():
                     previous = ev[2]
                     diff_txt = ""
                     if actual and previous:
-                        diff = float(actual)-float(previous)
-                        diff_txt = (f" ↑ {diff:+.2f}"
-                                    if diff > 0
-                                    else f" ↓ {diff:+.2f}")
+                        diff = (float(actual)
+                                -float(previous))
+                        diff_txt = (
+                            f" ↑ {diff:+.2f}"
+                            if diff > 0
+                            else f" ↓ {diff:+.2f}")
                     st.markdown(card(
                         f'<span style="color:{ic};'
-                        f'font-size:11px;font-weight:bold;">'
+                        f'font-size:11px;'
+                        f'font-weight:bold;">'
                         f'[{ev[3]}]</span>'
                         f'<span style="color:#333;'
-                        f'font-size:13px;margin-left:8px;">'
+                        f'font-size:13px;'
+                        f'margin-left:8px;">'
                         f'{ev[0]}</span>'
                         f'<span style="color:#888;'
-                        f'font-size:12px;margin-left:12px;">'
+                        f'font-size:12px;'
+                        f'margin-left:12px;">'
                         f'A:{actual} P:{previous}'
                         f'{diff_txt}</span>',
                         border_color=ic
@@ -537,8 +570,7 @@ def main():
             else:
                 st.info(
                     f"No events for {today}. "
-                    f"Add via Kaggle add_todays_events([])"
-                )
+                    f"Add via Kaggle Cell 2.")
 
     # ══════════════════════════════════════════════════════════
     # TAB 2 — DECISION SUPPORT
@@ -555,30 +587,35 @@ def main():
             if str(rpt_date) != str(today):
                 st.info(f"Showing data from {rpt_date}")
 
-            st.markdown("### Timeframe Alignment")
-            al_score = report.get("alignment_score") or 50
-            al_label = report.get("alignment","Unknown")
-            daily_tr = report.get("daily_trend","Unknown")
-            hourly   = report.get("hourly_bias","Unknown")
-            m15      = report.get("m15_bias","Unknown")
+            up_pct   = report.get("matrix_score",33) or 33
+            bias     = report.get("bias","Neutral") or "Neutral"
+            conf     = report.get("confidence","") or ""
 
-            tc1,tc2,tc3,tc4 = st.columns(4)
-            tc1.metric("Daily Trend",     daily_tr)
-            tc2.metric("1-Hour Bias",     hourly)
-            tc3.metric("15-Min Bias",     m15)
-            tc4.metric("Alignment Score",
-                       f"{al_score}/100")
+            if "Bullish" in str(bias):
+                down_pct  = max(5, 100-up_pct-20)
+                range_pct = max(5, 100-up_pct-down_pct)
+            elif "Bearish" in str(bias):
+                down_pct  = up_pct
+                up_pct    = max(5, 100-down_pct-30)
+                range_pct = max(5, 100-up_pct-down_pct)
+            else:
+                down_pct  = 25
+                range_pct = 100-up_pct-down_pct
 
-            al_color = ("#0066CC" if al_score >= 58
-                        else "#CC0000" if al_score <= 42
-                        else "#FF8C00")
+            st.markdown("### Scenario Probabilities")
+            sc1,sc2,sc3 = st.columns(3)
+            sc1.metric("📈 Uptrend",   f"{up_pct}%")
+            sc2.metric("📉 Downtrend", f"{down_pct}%")
+            sc3.metric("➡️ Range",     f"{range_pct}%")
+
+            ec = edge_color(conf)
             st.markdown(card(
                 f'<p style="color:#666;font-size:11px;'
-                f'margin:0;">ALIGNMENT</p>'
-                f'<p style="color:{al_color};font-size:15px;'
+                f'margin:0;">EDGE</p>'
+                f'<p style="color:{ec};font-size:18px;'
                 f'font-weight:bold;margin:4px 0 0;">'
-                f'{al_label}</p>',
-                border_color=al_color
+                f'{conf}</p>',
+                border_color=ec
             ), unsafe_allow_html=True)
 
             st.divider()
@@ -615,11 +652,11 @@ def main():
                         f"${qqq_lv['pdl']:.2f}",
                         "Support")
 
-            div_sig = report.get("divergence_signal","")
+            div_sig = report.get(
+                "divergence_signal","") or ""
             if div_sig:
                 st.divider()
-                st.markdown("### Divergence Alert")
-                st.warning(f"**{div_sig}**")
+                st.warning(f"⚠️ **Divergence: {div_sig}**")
 
     # ══════════════════════════════════════════════════════════
     # TAB 3 — RISK ADVISORY
@@ -634,17 +671,14 @@ def main():
                 "Account size ($)",
                 min_value=1000,
                 max_value=1000000,
-                value=10000,
-                step=1000
-            )
+                value=10000, step=1000)
             risk_tier = st.radio(
                 "Risk tier",
                 ["0.25% — Minimal",
                  "0.50% — Reduced",
                  "0.75% — Normal",
                  "1.00% — Full"],
-                index=1
-            )
+                index=1)
             risk_map = {
                 "0.25% — Minimal": 0.25,
                 "0.50% — Reduced": 0.50,
@@ -652,12 +686,12 @@ def main():
                 "1.00% — Full":    1.00
             }
             risk_pct  = risk_map[risk_tier]
-            max_risk  = round(account * risk_pct/100, 2)
-            daily_lim = round(max_risk * 3, 2)
+            max_risk  = round(account*risk_pct/100,2)
+            daily_lim = round(max_risk*3,2)
 
             report = get_latest_report()
             tp = (report.get("trade_prob",45)
-                  if report else 45)
+                  if report else 45) or 45
             max_trades = (1 if tp < 45
                           else 2 if tp < 60
                           else 3)
@@ -679,54 +713,49 @@ def main():
             ticker_c = st.selectbox(
                 "Ticker",
                 ["NQ","ES","MNQ","MES","SPY","QQQ"],
-                key="calc_ticker"
-            )
+                key="calc_ticker")
             pv_map = {
                 "NQ":20,"ES":50,"MNQ":2,
-                "MES":5,"SPY":1,"QQQ":1
-            }
-            pv = pv_map.get(ticker_c, 1)
+                "MES":5,"SPY":1,"QQQ":1}
+            pv = pv_map.get(ticker_c,1)
 
             entry = st.number_input(
                 "Entry price",
                 value=21500.0,
-                step=0.25,
-                format="%.2f"
-            )
+                step=0.25, format="%.2f")
             stop = st.number_input(
                 "Stop loss",
                 value=21480.0,
-                step=0.25,
-                format="%.2f"
-            )
+                step=0.25, format="%.2f")
 
             if entry != stop:
-                rps       = abs(entry - stop)
+                rps       = abs(entry-stop)
                 direction = ("Long" if stop < entry
                              else "Short")
-                dollar_risk = rps * pv
-                contracts   = max(1, int(
+                dollar_risk = rps*pv
+                contracts = max(1,int(
                     max_risk/dollar_risk
                 )) if dollar_risk > 0 else 1
 
-                t1 = round(
-                    entry+rps if direction=="Long"
-                    else entry-rps, 2)
-                t2 = round(
-                    entry+rps*2 if direction=="Long"
-                    else entry-rps*2, 2)
-                t3 = round(
-                    entry+rps*3 if direction=="Long"
-                    else entry-rps*3, 2)
+                t1 = round(entry+rps
+                           if direction=="Long"
+                           else entry-rps, 2)
+                t2 = round(entry+rps*2
+                           if direction=="Long"
+                           else entry-rps*2, 2)
+                t3 = round(entry+rps*3
+                           if direction=="Long"
+                           else entry-rps*3, 2)
 
                 st.markdown(card(
                     f'<b style="color:#333;">'
-                    f'{direction} — {contracts} contract(s)'
-                    f'</b><br>'
+                    f'{direction} — '
+                    f'{contracts} contract(s)</b><br>'
                     f'<span style="color:#666;'
                     f'font-size:12px;">'
-                    f'Risk/contract: ${dollar_risk:.2f} | '
-                    f'Total: ${dollar_risk*contracts:.2f}'
+                    f'Risk/contract: ${dollar_risk:.2f}'
+                    f' | Total: '
+                    f'${dollar_risk*contracts:.2f}'
                     f'</span><br><br>'
                     f'<span style="color:#CC0000;">'
                     f'1:1 → {t1:.2f} '
@@ -751,76 +780,33 @@ def main():
         events = get_todays_events()
 
         if report:
-            sent  = report.get("sentiment_score",50) or 50
-            ns    = report.get("narrative_score",50) or 50
-            ie    = report.get("is_event_day",False)
-            bias  = report.get("bias","Neutral")
-            score = report.get("matrix_score",50)
+            up_pct = report.get("matrix_score",33) or 33
+            bias   = report.get("bias","Neutral") or "Neutral"
+            ie     = report.get("is_event_day",False)
+            conf   = report.get("confidence","") or ""
 
             sc1,sc2,sc3 = st.columns(3)
-            sent_lbl = ("Bullish" if sent >= 60
-                        else "Bearish" if sent <= 40
-                        else "Neutral")
-            sc1.metric("Sentiment Score",
-                       f"{sent}/100", sent_lbl)
-            sc2.metric("Narrative Score",
-                       f"{ns}/100")
-            sc3.metric("Event Day",
+            sc1.metric("Uptrend Probability", f"{up_pct}%")
+            sc2.metric("Event Day",
                        "Yes ★★★" if ie else "No")
+            sc3.metric("Edge", conf or "No Edge")
 
             st.divider()
-
-            # Sentiment breakdown
-            sv1, sv2 = st.columns(2)
-
-            with sv1:
-                st.markdown("**News Sentiment**")
-                sent_color = ("#0066CC" if sent >= 60
-                              else "#CC0000" if sent <= 40
-                              else "#FF8C00")
-                st.markdown(
-                    f'<p style="color:{sent_color};'
-                    f'font-size:22px;font-weight:bold;">'
-                    f'{sent}/100 — {sent_lbl}</p>'
-                    f'<p style="color:#666;font-size:12px;">'
-                    f'Source: Manual input or VADER news</p>'
-                    f'<p style="color:#888;font-size:11px;">'
-                    f'VIX removed — stale daily data</p>',
-                    unsafe_allow_html=True
-                )
-
-            with sv2:
-                st.markdown("**Economic Narrative**")
-                ns_color = ("#0066CC" if ns >= 60
-                            else "#CC0000" if ns <= 40
-                            else "#FF8C00")
-                ns_lbl   = ("Bullish" if ns >= 60
-                            else "Bearish" if ns <= 40
-                            else "Neutral")
-                st.markdown(
-                    f'<p style="color:{ns_color};'
-                    f'font-size:22px;font-weight:bold;">'
-                    f'{ns}/100 — {ns_lbl}</p>'
-                    f'<p style="color:#666;font-size:12px;">'
-                    f'Scored from economic events</p>',
-                    unsafe_allow_html=True
-                )
-
-            st.divider()
-            st.markdown("**How sentiment is calculated:**")
+            st.markdown("**How probabilities are calculated:**")
             st.markdown(card(
                 f'<p style="color:#333;font-size:13px;'
                 f'line-height:1.8;margin:0;">'
-                f'<b>Priority 1:</b> Manual score '
-                f'(MANUAL_SENTIMENT in Cell 2)<br>'
-                f'<b>Priority 2:</b> VADER news sentiment '
-                f'from Railway headlines<br>'
-                f'<b>Priority 3:</b> Default 50 (neutral) '
-                f'if no data available<br><br>'
-                f'<b>VIX removed</b> — yesterday\'s VIX '
-                f'has no intraday predictive value.<br>'
-                f'Set MANUAL_SENTIMENT in Cell 2 every '
-                f'morning for best accuracy.</p>'
+                f'<b>Step 1:</b> You classify narrative '
+                f'every morning (B/R/C/W/U/N)<br>'
+                f'<b>Step 2:</b> System reads first 5-min '
+                f'candle at 9:35 AM<br>'
+                f'<b>Step 3:</b> Combines → Matrix type '
+                f'(e.g. BB, RC, IC)<br>'
+                f'<b>Step 4:</b> Looks up historical '
+                f'probabilities from 204 days<br><br>'
+                f'<b>No ML. No VIX. No arbitrary weights.</b>'
+                f'<br>Pure pattern frequency from your '
+                f'real trading observations.</p>'
             ), unsafe_allow_html=True)
 
         else:
@@ -836,10 +822,11 @@ def main():
                 previous = ev[2]
                 arrow = ""
                 if actual and previous:
-                    diff  = float(actual)-float(previous)
-                    arrow = " ↑" if diff > 0 else " ↓"
+                    diff = float(actual)-float(previous)
+                    arrow = " ↑" if diff>0 else " ↓"
                 st.markdown(card(
-                    f'<b style="color:{ic};">[{ev[3]}]</b> '
+                    f'<b style="color:{ic};">'
+                    f'[{ev[3]}]</b> '
                     f'<span style="color:#333;">'
                     f'{ev[0]}</span>'
                     f'<br><span style="color:#666;'
@@ -850,7 +837,7 @@ def main():
                 ), unsafe_allow_html=True)
         else:
             st.info("No events for today yet.")
-            
+
     # ══════════════════════════════════════════════════════════
     # TAB 5 — MY PROFILE + LAYER 7
     # ══════════════════════════════════════════════════════════
@@ -858,7 +845,6 @@ def main():
         events_b, scores_b, today_b, today_t = \
             get_behavioral_data()
 
-        # Behavioral state banner
         today_losses = 0
         hi_behaviors = 0
         if today_t and today_t[0]:
@@ -870,7 +856,7 @@ def main():
 
         if today_losses >= 2 or hi_behaviors >= 3:
             sc = "#CC0000"; st_txt = "🔴 STOP TRADING"
-            st_desc = (f"{today_losses} losses today. "
+            st_desc = (f"{today_losses} losses. "
                        f"Close platform now.")
         elif today_losses >= 1 or hi_behaviors >= 2:
             sc = "#FF6600"; st_txt = "🟠 TILT RISK"
@@ -884,8 +870,9 @@ def main():
 
         st.markdown(
             f"""
-            <div style='background:{sc}15;padding:14px;
-            border-radius:8px;border-left:4px solid {sc};
+            <div style='background:{sc}15;
+            padding:14px;border-radius:8px;
+            border-left:4px solid {sc};
             margin-bottom:12px;'>
             <p style='color:{sc};font-size:18px;
             font-weight:bold;margin:0;'>{st_txt}</p>
@@ -898,7 +885,6 @@ def main():
 
         col_brief, col_log = st.columns([1,1])
 
-        # Morning brief
         with col_brief:
             st.subheader("📋 Morning Brief")
 
@@ -915,18 +901,22 @@ def main():
                     st.markdown(
                         f"""
                         <div style='background:#F8F9FA;
-                        padding:8px 12px;border-radius:6px;
+                        padding:8px 12px;
+                        border-radius:6px;
                         border-left:3px solid {color};
-                        margin-bottom:4px;display:flex;
+                        margin-bottom:4px;
+                        display:flex;
                         justify-content:space-between;'>
                         <span style='color:{color};
-                        font-weight:bold;font-size:12px;'>
+                        font-weight:bold;
+                        font-size:12px;'>
                         {e[0]}</span>
                         <span>
                         <span style='color:#666;
                         font-size:12px;'>{count}x</span>
                         <span style='color:{color};
-                        font-size:12px;margin-left:12px;'>
+                        font-size:12px;
+                        margin-left:12px;'>
                         ${cost:+.0f}</span>
                         </span></div>
                         """,
@@ -948,7 +938,8 @@ def main():
                     margin-bottom:4px;'>
                     🔴 <b>Revenge trading</b>
                     ({int(revenge[1])}x)<br>
-                    <span style='color:#666;font-size:12px;'>
+                    <span style='color:#666;
+                    font-size:12px;'>
                     After ANY loss → 30 min break
                     </span></div>""",
                     unsafe_allow_html=True
@@ -965,7 +956,8 @@ def main():
                     margin-bottom:4px;'>
                     🔴 <b>FOMO pattern</b>
                     ({int(fomo[1])}x)<br>
-                    <span style='color:#666;font-size:12px;'>
+                    <span style='color:#666;
+                    font-size:12px;'>
                     Check system BEFORE every trade
                     </span></div>""",
                     unsafe_allow_html=True
@@ -977,11 +969,11 @@ def main():
 
             if scores_b:
                 st.markdown("**Score trend:**")
-                vals  = [int(s[0]) for s in
-                         reversed(scores_b)]
-                dts   = [str(s[2]) for s in
-                         reversed(scores_b)]
-                fig = go.Figure()
+                vals = [int(s[0]) for s in
+                        reversed(scores_b)]
+                dts  = [str(s[2]) for s in
+                        reversed(scores_b)]
+                fig  = go.Figure()
                 fig.add_trace(go.Scatter(
                     x=dts, y=vals,
                     mode="lines+markers",
@@ -998,7 +990,6 @@ def main():
                 st.plotly_chart(fig,
                     use_container_width=True)
 
-        # Trade log form
         with col_log:
             st.subheader("📝 Log a Trade")
             st.caption("45 seconds — log every trade")
@@ -1007,33 +998,38 @@ def main():
                          clear_on_submit=True):
                 fc1,fc2 = st.columns(2)
                 t_ticker = fc1.selectbox("Ticker",
-                    ["NQ","ES","SPY","QQQ","MNQ","MES"])
+                    ["NQ","ES","SPY","QQQ",
+                     "MNQ","MES"])
                 t_acct = fc2.selectbox("Account",
-                    ["Live","Topstep","Combine","Paper"])
+                    ["Live","Topstep",
+                     "Combine","Paper"])
 
                 fc3,fc4 = st.columns(2)
                 t_dir = fc3.radio("Direction",
-                    ["Long","Short"], horizontal=True)
+                    ["Long","Short"],
+                    horizontal=True)
                 t_setup = fc4.selectbox("Setup",
-                    ["Momentum","Reversal","Breakout",
-                     "Range","Event","Mean Reversion",
-                     "Trend Pullback","FOMO",
-                     "Revenge","Other"])
+                    ["Momentum","Reversal",
+                     "Breakout","Range","Event",
+                     "Mean Reversion",
+                     "Trend Pullback",
+                     "FOMO","Revenge","Other"])
 
                 fc5,fc6,fc7 = st.columns(3)
                 t_entry = fc5.number_input(
                     "Entry", value=0.0,
                     step=0.25, format="%.2f")
-                t_exit  = fc6.number_input(
+                t_exit = fc6.number_input(
                     "Exit", value=0.0,
                     step=0.25, format="%.2f")
-                t_stop  = fc7.number_input(
+                t_stop = fc7.number_input(
                     "Stop", value=0.0,
                     step=0.25, format="%.2f")
 
                 t_emotion = st.slider(
                     "Emotion (1=calm 10=stressed)",
-                    min_value=1, max_value=10, value=5)
+                    min_value=1, max_value=10,
+                    value=5)
 
                 fc8,fc9 = st.columns(2)
                 t_plan = fc8.radio(
@@ -1050,27 +1046,25 @@ def main():
                     "💾 Log Trade",
                     use_container_width=True)
 
-                if submitted and t_entry > 0 and t_exit > 0:
+                if submitted and t_entry>0 and t_exit>0:
                     pv_map = {
                         "NQ":20,"ES":50,"MNQ":2,
-                        "MES":5,"SPY":1,"QQQ":1
-                    }
-                    pv = pv_map.get(t_ticker, 1)
+                        "MES":5,"SPY":1,"QQQ":1}
+                    pv = pv_map.get(t_ticker,1)
 
                     if t_dir == "Long":
-                        pnl = (t_exit - t_entry) * pv
+                        pnl = (t_exit-t_entry)*pv
                     else:
-                        pnl = (t_entry - t_exit) * pv
+                        pnl = (t_entry-t_exit)*pv
 
-                    outcome = ("Win" if pnl > 0
-                               else "Loss" if pnl < 0
+                    outcome = ("Win" if pnl>0
+                               else "Loss" if pnl<0
                                else "Scratch")
-                    risk  = abs(t_entry - t_stop)
+                    risk  = abs(t_entry-t_stop)
                     pnl_r = round(
-                        pnl/(risk*pv), 2
+                        pnl/(risk*pv),2
                     ) if risk > 0 else 0
 
-                    # Rapid reentry check
                     reentry_warning = None
                     try:
                         with engine.connect() as conn:
@@ -1091,21 +1085,21 @@ def main():
                             mins = abs((
                                 datetime.now(utc) -
                                 last_t[0]
-                            ).total_seconds()) / 60
+                            ).total_seconds())/60
                             prev = float(last_t[1])
                             if prev < 0 and mins < 30:
                                 rem = round(30-mins)
                                 reentry_warning = (
-                                    f"⛔ Only {mins:.0f}min "
-                                    f"since last LOSS. "
-                                    f"Wait {rem} more min."
+                                    f"⛔ Only {mins:.0f}"
+                                    f"min since last LOSS."
+                                    f" Wait {rem} more min."
                                 )
                             elif mins < 15:
                                 rem = round(15-mins)
                                 reentry_warning = (
-                                    f"⚠️ Only {mins:.0f}min "
-                                    f"since last trade. "
-                                    f"Wait {rem} more min."
+                                    f"⚠️ Only {mins:.0f}"
+                                    f"min since last trade."
+                                    f" Wait {rem} more min."
                                 )
                     except:
                         pass
@@ -1117,7 +1111,8 @@ def main():
                             with engine.connect() as conn:
                                 rpt = conn.execute(
                                     text("""
-                                    SELECT matrix_score,bias
+                                    SELECT matrix_score,
+                                           bias
                                     FROM intelligence_reports
                                     WHERE market='US'
                                     AND report_date=:td
@@ -1133,11 +1128,15 @@ def main():
                                         else "Unknown")
 
                                 conn.execute(text("""
-                                    INSERT INTO trade_journal(
-                                        market,trade_date,
-                                        trade_time,ticker,
+                                    INSERT INTO
+                                    trade_journal(
+                                        market,
+                                        trade_date,
+                                        trade_time,
+                                        ticker,
                                         account_type,
-                                        direction,setup_type,
+                                        direction,
+                                        setup_type,
                                         entry_price,
                                         exit_price,
                                         stop_price,
@@ -1178,14 +1177,16 @@ def main():
                                     "emotion": t_emotion,
                                     "plan":    t_plan=="Yes",
                                     "mistake": t_mistake,
-                                    "checked": t_checked=="Yes",
+                                    "checked": (
+                                        t_checked=="Yes"),
                                     "gate": (
                                         t_plan=="Yes" and
                                         t_checked=="Yes")
                                 })
                                 conn.commit()
 
-                            color = ("#0066CC" if pnl > 0
+                            color = ("#0066CC"
+                                     if pnl>0
                                      else "#CC0000")
                             st.markdown(
                                 f"""
@@ -1207,7 +1208,6 @@ def main():
                         except Exception as e:
                             st.error(f"Save failed: {e}")
 
-        # Today's behavioral alerts
         if today_b:
             st.divider()
             st.subheader("⚠️ Today's Behavioral Alerts")
@@ -1217,12 +1217,14 @@ def main():
                 st.markdown(
                     f"""
                     <div style='background:{color}15;
-                    padding:10px 14px;border-radius:6px;
+                    padding:10px 14px;
+                    border-radius:6px;
                     border-left:3px solid {color};
                     margin-bottom:6px;'>
-                    <b style='color:{color};'>{b[0]}</b>
-                    <span style='color:#666;font-size:12px;
-                    margin-left:8px;'>
+                    <b style='color:{color};'>
+                    {b[0]}</b>
+                    <span style='color:#666;
+                    font-size:12px;margin-left:8px;'>
                     {b[1]} — {int(b[2])}x today
                     </span></div>
                     """,
@@ -1238,7 +1240,8 @@ def main():
             ["Today","Last 7 days","Last 30 days"])
         acct_filter = col_f2.selectbox(
             "Account",
-            ["All","Live","Topstep","Combine","Paper"])
+            ["All","Live","Topstep",
+             "Combine","Paper"])
 
         days_map = {"Today":1,"Last 7 days":7,
                     "Last 30 days":30}
@@ -1252,34 +1255,37 @@ def main():
         if trades:
             total     = len(trades)
             wins      = sum(1 for t in trades
-                            if float(t[6]) > 0)
-            total_pnl = sum(float(t[6]) for t in trades)
+                            if float(t[6])>0)
+            total_pnl = sum(float(t[6])
+                            for t in trades)
             wr        = round(wins/total*100,1)
 
             sm1,sm2,sm3,sm4 = st.columns(4)
             sm1.metric("Trades",    total)
             sm2.metric("Win Rate",  f"{wr}%")
-            sm3.metric("Total P&L", f"${total_pnl:+.2f}")
+            sm3.metric("Total P&L",
+                       f"${total_pnl:+.2f}")
             sm4.metric("Avg Emotion",
-                round(sum(
-                    int(t[8]) for t in trades
-                )/total, 1))
+                round(sum(int(t[8])
+                          for t in trades
+                          )/total,1))
 
             st.divider()
             for t in trades[:20]:
                 pnl   = float(t[6])
                 pnl_r = float(t[7] or 0)
-                color = ("#0066CC" if pnl > 0
-                         else "#CC0000" if pnl < 0
+                color = ("#0066CC" if pnl>0
+                         else "#CC0000" if pnl<0
                          else "#888")
-                em    = ("✅" if pnl > 0
-                         else "❌" if pnl < 0
+                em    = ("✅" if pnl>0
+                         else "❌" if pnl<0
                          else "➖")
                 plan  = "✓" if t[9] else "✗"
                 st.markdown(
                     f"""
                     <div style='background:#F8F9FA;
-                    padding:10px 14px;border-radius:8px;
+                    padding:10px 14px;
+                    border-radius:8px;
                     border-left:4px solid {color};
                     margin-bottom:6px;'>
                     <div style='display:flex;
@@ -1289,13 +1295,14 @@ def main():
                     <span style='color:#888;
                     font-size:12px;margin-left:8px;'>
                     {t[0]} {t[1] or ''} •
-                    {t[10] or ''} • {t[12] or ''}
+                    {t[10] or ''} •
+                    {t[12] or ''}
                     </span></span>
                     <b style='color:{color};'>
                     ${pnl:+.2f} ({pnl_r:+.2f}R)
                     </b></div>
-                    <div style='color:#888;font-size:11px;
-                    margin-top:4px;'>
+                    <div style='color:#888;
+                    font-size:11px;margin-top:4px;'>
                     {float(t[4]):.2f} →
                     {float(t[5]):.2f} •
                     Emotion:{t[8]}/10 • Plan:{plan}
@@ -1307,7 +1314,6 @@ def main():
         else:
             st.info("No trades logged yet.")
 
-        # Money leaks
         st.divider()
         st.subheader("💸 Money Leaks")
         start_30 = date.today() - timedelta(days=30)
@@ -1321,9 +1327,10 @@ def main():
                     WHERE market='US'
                     AND event_date >= :start
                     GROUP BY behavior_type
-                    ORDER BY cost ASC
-                    LIMIT 10
-                """), {"start":str(start_30)}).fetchall()
+                    ORDER BY cost ASC LIMIT 10
+                """), {
+                    "start":str(start_30)
+                }).fetchall()
 
             if leaks:
                 costs    = [abs(float(l[2] or 0))
@@ -1343,20 +1350,22 @@ def main():
                     st.markdown(
                         f"""
                         <div style='background:#F8F9FA;
-                        padding:8px 14px;border-radius:6px;
+                        padding:8px 14px;
+                        border-radius:6px;
                         margin-bottom:4px;'>
                         <div style='display:flex;
                         justify-content:space-between;'>
                         <span style='color:#333;
-                        font-weight:bold;'>{l[0]}</span>
+                        font-weight:bold;'>
+                        {l[0]}</span>
                         <span style='color:{color};
                         font-weight:bold;'>
                         ${cost:+.0f}
                         <span style='color:#888;
                         font-size:11px;
                         font-weight:normal;'>
-                        ({count}x)</span></span>
-                        </div>
+                        ({count}x)</span>
+                        </span></div>
                         <div style='background:#E8E8E8;
                         border-radius:3px;height:4px;
                         margin-top:4px;'>
@@ -1372,7 +1381,6 @@ def main():
         except Exception as e:
             st.error(f"Could not load: {e}")
 
-        # Forward test record
         st.divider()
         st.subheader("📈 Forward Test Record")
         log_df = get_learning_log_deduped()
@@ -1391,10 +1399,9 @@ def main():
             fl3.metric("Accuracy",    f"{wr_days}%")
 
             st.dataframe(
-                log_df[[
-                    "date","predicted","actual",
-                    "return","correct","score"
-                ]],
+                log_df[["date","predicted",
+                         "actual","return",
+                         "correct","score"]],
                 use_container_width=True
             )
 
@@ -1418,7 +1425,6 @@ def main():
             with engine.connect() as conn:
                 tables = {
                     "price_data":           "Price rows",
-                    "vix_data":             "VIX rows",
                     "economic_events":      "Events",
                     "news_headlines":       "Headlines",
                     "sentiment_scores":     "Sentiment",
@@ -1445,12 +1451,31 @@ def main():
             st.error(f"Stats unavailable: {e}")
 
         st.divider()
+        st.markdown("### System Architecture")
+        st.markdown(card(
+            f'<p style="color:#333;font-size:13px;'
+            f'line-height:1.8;margin:0;">'
+            f'<b>Probability Engine:</b> '
+            f'17 matrix patterns × 204 days<br>'
+            f'<b>Primary input:</b> '
+            f'Narrative (B/R/C/W/U/N)<br>'
+            f'<b>Confirmation:</b> '
+            f'First 5-min candle at 9:35 AM<br>'
+            f'<b>Output:</b> '
+            f'Up% / Down% / Range% probabilities<br>'
+            f'<b>Removed:</b> '
+            f'ML ensemble, VIX, arbitrary weights<br>'
+            f'<b>Next ML:</b> '
+            f'November 2026 (300+ labeled days)</p>'
+        ), unsafe_allow_html=True)
+
+        st.divider()
         st.markdown("### Layer Status")
         layers = {
             "Layer 1 — Data Pipeline":
                 "✅ Railway 24/7",
-            "Layer 2 — ML Matrix Engine":
-                "✅ Kaggle daily",
+            "Layer 2 — Probability Engine":
+                "✅ Matrix lookup (204 days)",
             "Layer 3 — Decision Support":
                 "✅ Complete",
             "Layer 4 — Risk Advisory":
