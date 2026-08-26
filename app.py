@@ -727,18 +727,25 @@ def main():
                      or "No Edge"
             ie     = report.get("is_event_day",False)
 
-            if "Bullish" in str(bias) or \
-               "Uptrend" in str(bias):
-                down_pct  = max(5,100-up_pct-20)
-                range_pct = max(5,100-up_pct-down_pct)
-            elif "Bearish"   in str(bias) or \
-                 "Downtrend" in str(bias):
-                down_pct  = up_pct
-                up_pct    = max(5,100-down_pct-30)
-                range_pct = max(5,100-up_pct-down_pct)
-            else:
-                down_pct  = 25
-                range_pct = max(5,100-up_pct-down_pct)
+            # Find and replace this entire block:
+        if "Bullish" in str(bias) or \
+           "Uptrend" in str(bias):
+            down_pct  = max(5,100-up_pct-20)
+            range_pct = max(5,100-up_pct-down_pct)
+        elif "Bearish" in str(bias) or \
+            "Downtrend" in str(bias):
+            down_pct  = up_pct
+            up_pct    = max(5,100-down_pct-30)
+            range_pct = max(5,100-up_pct-down_pct)
+        else:
+            down_pct  = 25
+            range_pct = max(5,100-up_pct-down_pct)
+
+        # Replace with:
+            up_pct    = report.get("up_pct",33) or \
+            report.get("matrix_score",33) or 33
+            down_pct  = report.get("down_pct",25) or 25
+            range_pct = report.get("range_pct",42) or 42
 
             reaction = report.get("reaction_type","") or ""
             narr_hl  = report.get(
