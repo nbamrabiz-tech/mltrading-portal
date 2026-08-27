@@ -387,6 +387,357 @@ def get_drawdown():
 # ══════════════════════════════════════════════════════════════
 # BEHAVIORAL DETECTION ENGINE
 # ══════════════════════════════════════════════════════════════
+def calculate_daily_score(target_date=None):
+    """
+    0-100 composite behavioral score.
+    5 components weighted by importance.
+    Saves to behavioral_scores table.
+    Returns score dict or None if no trades.
+
+    Component breakdown:
+    1. System adherence  25 pts — checked system?
+    2. Rule adherence    25 pts — followed plan?
+    3. Emotion control   20 pts — avg emotion level
+    4. Trade discipline  20 pts — trade count + losses
+    5. Behavior penalty  10 pts — high severity events
+    """
+    if target_date is None:
+        target_date = date.today()
+
+    try:
+        with engine.connect() as conn:
+            trades = conn.execute(text("""
+                SELECT pnl, emotional_state,
+                       followed_plan, checked_system,
+                       pre_trade_gate, created_at
+                FROM trade_journal
+                WHERE market='US'
+                AND trade_date=:td
+                ORDER BY created_at ASC
+            """), {"td": str(target_date)}).fetchall()
+
+            behaviors = conn.execute(text("""
+                SELECT behavior_type, severity
+                FROM behavioral_events
+                WHERE market='US'
+                AND event_date=:td
+            """), {"td": str(target_date)}).fetchall()
+
+        if not trades:
+            return None
+
+        total        = len(trades)
+        pnls         = [float(t[0]) for t in trades]
+        emotions     = [int(t[1]) for t in trades]
+        plans        = [bool(t[2]) for t in trades]
+        systems      = [bool(t[3]) for t in trades]
+        losses       = sum(1 for p in pnls if p < 0)
+        hi_behaviors = sum(1 for b in behaviors
+                           if b[1] == "High")
+
+        # Component 1 — System adherence (25 pts)
+        sys_rate = sum(systems) / total
+        if sys_rate == 1.0:    sys_score = 25
+        elif sys_rate >= 0.75: sys_score = 18
+        elif sys_rate >= 0.5:  sys_score = 10
+        else:                  sys_score = 0
+
+        # Component 2 — Rule adherence (25 pts)
+        plan_rate = sum(plans) / total
+        if plan_rate == 1.0:    plan_score = 25
+        elif plan_rate >= 0.75: plan_score = 18
+        elif plan_rate >= 0.5:  plan_score = 10
+        else:                   plan_score = 0
+
+        # Component 3 — Emotion control (20 pts)
+        avg_emotion = sum(emotions) / total
+        if avg_emotion <= 4:   emo_score = 20
+        elif avg_emotion <= 5: emo_score = 17
+        elif avg_emotion <= 6: emo_score = 12
+        elif avg_emotion <= 7: emo_score = 6
+        else:                  emo_score = 0
+
+        # Component 4 — Trade discipline (20 pts)
+        if losses >= 2:  disc_score = 0
+        elif total <= 3: disc_score = 20
+        elif total == 4: disc_score = 12
+        elif total == 5: disc_score = 6
+        else:            disc_score = 0
+
+        # Component 5 — Behavior penalty (10 pts)
+        if hi_behaviors == 0:   beh_score = 10
+        elif hi_behaviors == 1: beh_score = 5
+        else:                   beh_score = 0
+
+        total_score = (sys_score + plan_score +
+                       emo_score + disc_score +
+                       beh_score)
+
+        if total_score >= 80:   state = "Excellent"
+        elif total_score >= 65: state = "Good"
+        elif total_score >= 50: state = "Fair"
+        elif total_score >= 35: state = "Poor"
+        else:                   state = "Critical"
+
+        # Save to behavioral_scores
+        with engine.connect() as conn:
+            conn.execute(text("""
+                INSERT INTO behavioral_scores(
+                    market, score_date,
+                    overall_score,
+                    behavioral_state,
+                    total_trades,
+                    system_adherence_score,
+                    rule_adherence_score,
+                    emotion_control_score,
+                    discipline_score)
+                VALUES('US',:sd,:os,:bs,
+                       :tt,:ss,:rs,:es,:ds)
+                ON CONFLICT (market, score_date)
+                DO UPDATE SET
+                    overall_score=:os,
+                    behavioral_state=:bs,
+                    total_trades=:tt,
+                    system_adherence_score=:ss,
+                    rule_adherence_score=:rs,
+                    emotion_control_score=:es,
+                    discipline_score=:ds
+            """), {
+                "sd": str(target_date),
+                "os": total_score,
+                "bs": state,
+                "tt": total,
+                "ss": sys_score,
+                "rs": plan_score,
+                "es": emo_score,
+                "ds": disc_score
+            })
+            conn.commit()
+
+        return {
+            "score":        total_score,
+            "state":        state,
+            "total":        total,
+            "sys_score":    sys_score,
+            "plan_score":   plan_score,
+            "emo_score":    emo_score,
+            "disc_score":   disc_score,
+            "beh_score":    beh_score,
+            "avg_emotion":  round(avg_emotion, 1),
+            "losses":       losses,
+            "hi_behaviors": hi_behaviors
+        }
+
+    except Exception as e:
+        return None
+
+
+def get_streaks():
+    """
+    Detects win/loss streaks from trade journal.
+    Also detects prediction streaks from learning log.
+    Returns streak info and warnings.
+    """
+    result = {
+        "trade_streak":      0,
+        "trade_streak_type": None,
+        "pred_streak":       0,
+        "pred_streak_type":  None,
+        "warnings":          []
+    }
+
+    try:
+        # Trade streaks
+        with engine.connect() as conn:
+            trades = conn.execute(text("""
+                SELECT pnl, trade_date
+                FROM trade_journal
+                WHERE market='US'
+                ORDER BY trade_date DESC,
+                         created_at DESC
+                LIMIT 20
+            """)).fetchall()
+
+        if trades:
+            first_pnl    = float(trades[0][0])
+            current_type = "Win" if first_pnl > 0 \
+                           else "Loss"
+            streak = 0
+
+            for t in trades:
+                pnl       = float(t[0])
+                this_type = "Win" if pnl > 0 else "Loss"
+                if this_type == current_type:
+                    streak += 1
+                else:
+                    break
+
+            result["trade_streak"]      = streak
+            result["trade_streak_type"] = current_type
+
+            if current_type == "Loss" and streak >= 3:
+                result["warnings"].append(
+                    f"⛔ {streak} loss streak. "
+                    f"STOP TRADING TODAY. "
+                    f"Come back tomorrow fresh."
+                )
+            elif current_type == "Loss" and streak >= 2:
+                result["warnings"].append(
+                    f"🔴 {streak} consecutive losses. "
+                    f"Revenge risk is HIGH. "
+                    f"30 min break before next trade."
+                )
+            elif current_type == "Win" and streak >= 3:
+                result["warnings"].append(
+                    f"⚠️ {streak} win streak. "
+                    f"Overconfidence risk. "
+                    f"Do not increase size."
+                )
+
+        # Prediction streaks from learning log
+        with engine.connect() as conn:
+            preds = conn.execute(text("""
+                SELECT DISTINCT ON (log_date)
+                    was_correct, log_date
+                FROM learning_log
+                WHERE market='US'
+                ORDER BY log_date DESC,
+                         logged_at DESC
+                LIMIT 10
+            """)).fetchall()
+
+        if preds:
+            first_correct = bool(preds[0][0])
+            pred_type     = "Correct" \
+                            if first_correct \
+                            else "Incorrect"
+            pred_streak   = 0
+
+            for p in preds:
+                this = bool(p[0])
+                if (this and pred_type == "Correct") or \
+                   (not this and pred_type == "Incorrect"):
+                    pred_streak += 1
+                else:
+                    break
+
+            result["pred_streak"]      = pred_streak
+            result["pred_streak_type"] = pred_type
+
+    except:
+        pass
+
+    return result
+
+
+def get_weekly_report():
+    """
+    Weekly behavioral summary Mon-Fri.
+    Shows patterns, scores, P&L, forward test.
+    Auto-generates next week focus.
+    """
+    today  = date.today()
+    monday = today - timedelta(days=today.weekday())
+    friday = monday + timedelta(days=4)
+
+    try:
+        with engine.connect() as conn:
+            trades = conn.execute(text("""
+                SELECT COUNT(*),
+                       SUM(CASE WHEN pnl>0
+                           THEN 1 ELSE 0 END),
+                       SUM(pnl),
+                       AVG(emotional_state),
+                       SUM(CASE WHEN pnl<0
+                           THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN checked_system
+                           THEN 1 ELSE 0 END),
+                       SUM(CASE WHEN followed_plan
+                           THEN 1 ELSE 0 END)
+                FROM trade_journal
+                WHERE market='US'
+                AND trade_date BETWEEN :mon AND :fri
+            """), {
+                "mon": str(monday),
+                "fri": str(friday)
+            }).fetchone()
+
+            behaviors = conn.execute(text("""
+                SELECT behavior_type,
+                       COUNT(*) as cnt,
+                       SUM(financial_cost) as cost
+                FROM behavioral_events
+                WHERE market='US'
+                AND event_date BETWEEN :mon AND :fri
+                GROUP BY behavior_type
+                ORDER BY cnt DESC
+            """), {
+                "mon": str(monday),
+                "fri": str(friday)
+            }).fetchall()
+
+            scores = conn.execute(text("""
+                SELECT score_date, overall_score,
+                       behavioral_state
+                FROM behavioral_scores
+                WHERE market='US'
+                AND score_date BETWEEN :mon AND :fri
+                ORDER BY score_date ASC
+            """), {
+                "mon": str(monday),
+                "fri": str(friday)
+            }).fetchall()
+
+            fwd = conn.execute(text("""
+                SELECT DISTINCT ON (log_date)
+                    log_date, was_correct,
+                    predicted_bias, actual_bias
+                FROM learning_log
+                WHERE market='US'
+                AND log_date BETWEEN :mon AND :fri
+                ORDER BY log_date, logged_at DESC
+            """), {
+                "mon": str(monday),
+                "fri": str(friday)
+            }).fetchall()
+
+            last_mon = monday - timedelta(days=7)
+            last_fri = friday - timedelta(days=7)
+            last_sc  = conn.execute(text("""
+                SELECT AVG(overall_score)
+                FROM behavioral_scores
+                WHERE market='US'
+                AND score_date BETWEEN :mon AND :fri
+            """), {
+                "mon": str(last_mon),
+                "fri": str(last_fri)
+            }).fetchone()
+
+        return {
+            "week_start":    monday,
+            "week_end":      friday,
+            "trades":        trades,
+            "behaviors":     behaviors,
+            "scores":        scores,
+            "fwd_test":      fwd,
+            "last_week_avg": float(last_sc[0])
+                             if last_sc and last_sc[0]
+                             else None
+        }
+
+    except:
+        return None
+
+
+def score_color(score):
+    if score >= 80: return "#0066CC"
+    if score >= 65: return "#4CAF50"
+    if score >= 50: return "#FF8C00"
+    if score >= 35: return "#FF5722"
+    return "#CC0000"
+
+
+
 def detect_all_behaviors(trade_id, trade_date,
                           pnl, emotion,
                           followed_plan,
@@ -673,6 +1024,13 @@ def candle_color(d):
     if "Bearish" in str(d): return "#CC0000"
     return "#888888"
 
+def score_color(score):
+    if score >= 80: return "#0066CC"
+    if score >= 65: return "#4CAF50"
+    if score >= 50: return "#FF8C00"
+    if score >= 35: return "#FF5722"
+    return "#CC0000"
+
 # ══════════════════════════════════════════════════════════════
 # MAIN
 # ══════════════════════════════════════════════════════════════
@@ -727,25 +1085,18 @@ def main():
                      or "No Edge"
             ie     = report.get("is_event_day",False)
 
-            # Find and replace this entire block:
-        if "Bullish" in str(bias) or \
-           "Uptrend" in str(bias):
-            down_pct  = max(5,100-up_pct-20)
-            range_pct = max(5,100-up_pct-down_pct)
-        elif "Bearish" in str(bias) or \
-            "Downtrend" in str(bias):
-            down_pct  = up_pct
-            up_pct    = max(5,100-down_pct-30)
-            range_pct = max(5,100-up_pct-down_pct)
-        else:
-            down_pct  = 25
-            range_pct = max(5,100-up_pct-down_pct)
-
-        # Replace with:
-            up_pct    = report.get("up_pct",33) or \
-            report.get("matrix_score",33) or 33
-            down_pct  = report.get("down_pct",25) or 25
-            range_pct = report.get("range_pct",42) or 42
+            if "Bullish" in str(bias) or \
+               "Uptrend" in str(bias):
+                down_pct  = max(5,100-up_pct-20)
+                range_pct = max(5,100-up_pct-down_pct)
+            elif "Bearish"   in str(bias) or \
+                 "Downtrend" in str(bias):
+                down_pct  = up_pct
+                up_pct    = max(5,100-down_pct-30)
+                range_pct = max(5,100-up_pct-down_pct)
+            else:
+                down_pct  = 25
+                range_pct = max(5,100-up_pct-down_pct)
 
             reaction = report.get("reaction_type","") or ""
             narr_hl  = report.get(
@@ -1210,6 +1561,132 @@ def main():
                 border_color="#0066CC",bg="#EEF4FF"
             ), unsafe_allow_html=True)
 
+        # ── Daily behavioral score ────────────────
+        daily_score = calculate_daily_score(
+            date.today())
+        streaks     = get_streaks()
+
+        if daily_score:
+            sc_val   = daily_score["score"]
+            sc_col   = score_color(sc_val)
+            sc_state = daily_score["state"]
+            st.markdown(
+                f"<div style='background:{sc_col}15;"
+                f"padding:14px;border-radius:8px;"
+                f"border-left:4px solid {sc_col};"
+                f"margin-bottom:12px;'>"
+                f"<p style='color:#666;font-size:11px;"
+                f"margin:0;'>TODAY'S BEHAVIORAL SCORE</p>"
+                f"<p style='color:{sc_col};font-size:36px;"
+                f"font-weight:bold;margin:4px 0 2px;'>"
+                f"{sc_val}/100 — {sc_state}</p>"
+                f"<div style='background:#E8E8E8;"
+                f"border-radius:4px;height:8px;"
+                f"margin-top:6px;'>"
+                f"<div style='background:{sc_col};"
+                f"width:{sc_val}%;height:8px;"
+                f"border-radius:4px;'></div>"
+                f"</div></div>",
+                unsafe_allow_html=True
+            )
+            sb1,sb2,sb3,sb4,sb5 = st.columns(5)
+            for col,label,val,mx in [
+                (sb1,"System",
+                 daily_score["sys_score"],25),
+                (sb2,"Rules",
+                 daily_score["plan_score"],25),
+                (sb3,"Emotion",
+                 daily_score["emo_score"],20),
+                (sb4,"Discipline",
+                 daily_score["disc_score"],20),
+                (sb5,"Behavior",
+                 daily_score["beh_score"],10),
+            ]:
+                pct   = round(val/mx*100) if mx>0 else 0
+                color = ("#0066CC" if pct>=80
+                         else "#FF8C00" if pct>=50
+                         else "#CC0000")
+                col.markdown(
+                    f"<div style='text-align:center;"
+                    f"padding:8px;background:#F8F9FA;"
+                    f"border-radius:6px;'>"
+                    f"<p style='color:#666;"
+                    f"font-size:10px;margin:0;'>"
+                    f"{label}</p>"
+                    f"<p style='color:{color};"
+                    f"font-size:18px;font-weight:bold;"
+                    f"margin:2px 0;'>{val}/{mx}</p>"
+                    f"</div>",
+                    unsafe_allow_html=True
+                )
+
+        # ── Streak display ────────────────────────
+        if streaks:
+            st.divider()
+            sk1,sk2 = st.columns(2)
+            with sk1:
+                ts = streaks["trade_streak"]
+                tt = streaks["trade_streak_type"]
+                if ts > 0 and tt:
+                    sk_col = ("#0066CC" if tt=="Win"
+                              else "#CC0000")
+                    sk_em  = ("🔥" if tt=="Win"
+                              else "📉")
+                    st.markdown(card(
+                        f'<p style="color:#666;'
+                        f'font-size:11px;margin:0;">'
+                        f'TRADE STREAK</p>'
+                        f'<p style="color:{sk_col};'
+                        f'font-size:22px;'
+                        f'font-weight:bold;margin:4px 0;">'
+                        f'{sk_em} {ts} {tt}s in a row'
+                        f'</p>',
+                        border_color=sk_col
+                    ), unsafe_allow_html=True)
+                else:
+                    st.markdown(card(
+                        f'<p style="color:#666;'
+                        f'font-size:11px;margin:0;">'
+                        f'TRADE STREAK</p>'
+                        f'<p style="color:#888;'
+                        f'font-size:14px;margin:4px 0;">'
+                        f'No trades yet</p>',
+                        border_color="#888"
+                    ), unsafe_allow_html=True)
+            with sk2:
+                ps = streaks["pred_streak"]
+                pt = streaks["pred_streak_type"]
+                if ps > 0 and pt:
+                    pk_col = ("#0066CC"
+                              if pt=="Correct"
+                              else "#CC0000")
+                    pk_em  = ("✅" if pt=="Correct"
+                              else "❌")
+                    st.markdown(card(
+                        f'<p style="color:#666;'
+                        f'font-size:11px;margin:0;">'
+                        f'PREDICTION STREAK</p>'
+                        f'<p style="color:{pk_col};'
+                        f'font-size:22px;'
+                        f'font-weight:bold;margin:4px 0;">'
+                        f'{pk_em} {ps} {pt} in a row'
+                        f'</p>',
+                        border_color=pk_col
+                    ), unsafe_allow_html=True)
+            for w in streaks.get("warnings",[]):
+                wc = ("#CC0000"
+                      if any(x in w for x in
+                             ["⛔","🔴"])
+                      else "#FF8C00")
+                st.markdown(
+                    f"<div style='background:{wc}15;"
+                    f"padding:10px 14px;"
+                    f"border-radius:6px;"
+                    f"border-left:3px solid {wc};"
+                    f"margin-bottom:6px;'>{w}</div>",
+                    unsafe_allow_html=True
+                )
+
         col_brief,col_log = st.columns([1,1])
 
         # Morning brief
@@ -1561,6 +2038,8 @@ def main():
                             conn.commit()
 
                         # Auto behavioral detection
+                        # and daily score update
+                        calculate_daily_score(t_date)
                         behaviors=detect_all_behaviors(
                             trade_id=trade_id,
                             trade_date=t_date,
@@ -2013,6 +2492,130 @@ def main():
         st.divider()
 
         # Forward test
+        # ── Weekly behavioral report ──────────────
+        st.subheader("📅 Weekly Report")
+        weekly = get_weekly_report()
+        if weekly:
+            tr       = weekly["trades"]
+            total_w  = int(tr[0] or 0) if tr else 0
+            wins_w   = int(tr[1] or 0) if tr else 0
+            pnl_w    = float(tr[2] or 0) if tr else 0
+            avg_em_w = float(tr[3] or 0) if tr else 0
+            sys_w    = int(tr[5] or 0) if tr else 0
+            plan_w   = int(tr[6] or 0) if tr else 0
+            fwd      = weekly["fwd_test"]
+            fwd_c    = sum(1 for f in fwd
+                           if bool(f[1])) if fwd else 0
+            fwd_t    = len(fwd) if fwd else 0
+            scores_w = weekly["scores"]
+            avg_sc_w = (
+                sum(int(s[1]) for s in scores_w)
+                /len(scores_w)
+            ) if scores_w else None
+            last_avg = weekly["last_week_avg"]
+
+            st.markdown(
+                f"**Week of "
+                f"{weekly['week_start'].strftime('%b %d')}"
+                f" — "
+                f"{weekly['week_end'].strftime('%b %d')}"
+                f"**"
+            )
+            wr1,wr2,wr3,wr4 = st.columns(4)
+            if total_w > 0:
+                wr_w = round(wins_w/total_w*100,1)
+                wr1.metric("Trades",   total_w)
+                wr2.metric("Win Rate", f"{wr_w}%")
+                wr3.metric("P&L",
+                    f"${pnl_w:+.2f}")
+                wr4.metric("Avg Emotion",
+                    f"{avg_em_w:.1f}/10")
+            else:
+                wr1.metric("Trades","0")
+                wr2.metric("Win Rate","—")
+                wr3.metric("P&L","$0")
+                wr4.metric("Avg Emotion","—")
+
+            fc1,fc2 = st.columns(2)
+            if fwd_t > 0:
+                fc1.metric("Forward Test",
+                    f"{fwd_c}/{fwd_t}",
+                    f"{round(fwd_c/fwd_t*100,1)}%")
+            if avg_sc_w is not None:
+                delta_txt = ""
+                if last_avg is not None:
+                    delta = avg_sc_w - last_avg
+                    delta_txt = (
+                        f"{delta:+.0f} vs last week")
+                fc2.metric("Avg Score",
+                    f"{avg_sc_w:.0f}/100",
+                    delta_txt)
+
+            if weekly["behaviors"]:
+                st.markdown("**Patterns this week:**")
+                for b in weekly["behaviors"][:4]:
+                    cost  = float(b[2] or 0)
+                    count = int(b[1])
+                    color = ("#CC0000" if cost<-50
+                             else "#FF8C00" if cost<0
+                             else "#0066CC")
+                    st.markdown(
+                        f"<div style='background:#F8F9FA;"
+                        f"padding:6px 12px;"
+                        f"border-radius:6px;"
+                        f"border-left:3px solid {color};"
+                        f"margin-bottom:4px;"
+                        f"display:flex;"
+                        f"justify-content:space-between;'>"
+                        f"<span style='color:{color};"
+                        f"font-weight:bold;"
+                        f"font-size:12px;'>{b[0]}</span>"
+                        f"<span style='color:#666;"
+                        f"font-size:12px;'>"
+                        f"{count}x ${cost:+.0f}"
+                        f"</span></div>",
+                        unsafe_allow_html=True
+                    )
+
+            if total_w > 0:
+                sys_rate  = round(sys_w/total_w*100)
+                plan_rate = round(plan_w/total_w*100)
+                st.caption(
+                    f"System check: {sys_rate}%  |  "
+                    f"Plan adherence: {plan_rate}%"
+                )
+
+            # Next week focus
+            st.markdown("---")
+            if total_w == 0:
+                focus = ("Start logging every trade. "
+                         "Even paper trades. "
+                         "Data is everything.")
+            elif avg_sc_w and avg_sc_w < 50:
+                focus = ("Focus on one thing: "
+                         "check the system before "
+                         "every trade. "
+                         "That one habit changes "
+                         "everything.")
+            elif avg_sc_w and avg_sc_w < 65:
+                focus = ("Good progress. Work on "
+                         "emotion — aim for ≤5 "
+                         "before every entry.")
+            else:
+                focus = ("Strong week. Maintain "
+                         "discipline. Do not increase "
+                         "size until 3 consecutive "
+                         "weeks above 65.")
+            st.info(f"🎯 Next week: {focus}")
+        else:
+            st.info("Weekly data appears here once "
+                    "you start logging trades.")
+
+        st.divider()
+
+        # ── Score trend update ────────────────────
+        # (already in morning brief — keep existing)
+
         st.subheader("📈 Forward Test Record")
         log_df=get_learning_log()
         if log_df.empty:
