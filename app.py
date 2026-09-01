@@ -2565,27 +2565,28 @@ def main():
                     "💾 Log Trade",
                     use_container_width=True)
 
-                if submitted and t_entry>0 and t_exit>0:
-                    pv_map = {
-                        "NQ":20,"ES":50,"MNQ":2,
-                        "MES":5,"SPY":1,"QQQ":1}
-                    pv = pv_map.get(t_ticker,1)
+                if submitted and t_entry>0:
+                pv_map = {"NQ":20,"ES":50,"MNQ":2,
+                "MES":5,"SPY":1,"QQQ":1}
+                pv = pv_map.get(t_ticker,1)
 
-                    # P&L with quantity
-                    if t_dir=="Long":
-                        pnl=(t_exit-t_entry)*pv*t_qty
-                    else:
-                        pnl=(t_entry-t_exit)*pv*t_qty
-
+            if t_exit > 0:
+                if t_dir=="Long":
+                    pnl=(t_exit-t_entry)*pv*t_qty
+                else:
+                    pnl=(t_entry-t_exit)*pv*t_qty
                     outcome=("Win" if pnl>0
-                             else "Loss" if pnl<0
-                             else "Scratch")
+                     else "Loss" if pnl<0
+                     else "Scratch")
+                else:
+                    pnl     = 0
+                    outcome = "Open"
 
                     risk_pts    = abs(t_entry-t_stop)
                     risk_dollar = risk_pts*pv*t_qty
                     pnl_r = round(
-                        pnl/risk_dollar,2
-                    ) if risk_dollar>0 else 0
+                    pnl/risk_dollar,2
+                ) if risk_dollar>0 and t_exit>0 else 0
 
                     # Planned R:R
                     planned_rr=0; rr_gap=0
