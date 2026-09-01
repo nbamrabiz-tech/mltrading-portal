@@ -1879,8 +1879,8 @@ def main():
             pattern_costs = {}
             for e in events_b[:20]:
                 bt = e[0]
-                cost = float(e[3]) \
-                    if e[3] else 0
+                cost = float(e[2]) \
+                    if e[2] else 0
                 if bt not in pattern_costs:
                     pattern_costs[bt] = \
                         {"count":0,"cost":0}
