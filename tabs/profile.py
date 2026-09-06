@@ -858,8 +858,8 @@ def render(engine, today, now_est):
         up_pct    = int(report.get("up_pct",33))
         down_pct  = int(report.get("down_pct",33))
         range_pct = int(report.get("range_pct",34))
-        edge      = report.get("confidence",
-                    report.get("edge",""))
+        edge      = str(report.get("confidence",
+                    report.get("bias", "")))
 
         if "No Edge" in str(edge) or \
                 range_pct >= up_pct:
@@ -1446,3 +1446,4 @@ def render(engine, today, now_est):
         check_exists=check_exists,
         check_data=check_data,
         trading_allowed=trading_allowed)
+
