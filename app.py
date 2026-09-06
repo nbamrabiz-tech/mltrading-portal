@@ -7,10 +7,10 @@ import streamlit as st
 from datetime import datetime
 import pytz
 
-from mltrading.db import get_engine
-from mltrading.config import EST
-from mltrading.auth import render_user_selector
-from mltrading.queries.trades import (
+from db import get_engine
+from config import EST
+from auth import render_user_selector
+from queries.trades import (
     get_last_trading_day,
     get_latest_report,
     get_trade_journal,
@@ -18,14 +18,14 @@ from mltrading.queries.trades import (
     get_spy_levels,
     get_learning_log,
 )
-from mltrading.queries.behavioral import (
+from queries.behavioral import (
     get_behavioral_data,
     get_streaks,
     calculate_daily_score,
     check_reentry_timing,
     detect_all_behaviors,
 )
-from mltrading.queries.analytics import (
+from queries.analytics import (
     get_expectancy,
     get_time_analysis,
     get_setup_analysis,
@@ -33,7 +33,7 @@ from mltrading.queries.analytics import (
     get_drawdown,
     get_weekly_report,
 )
-from mltrading.tabs import (
+from tabs import (
     intelligence,
     decision_support,
     risk_advisory,
@@ -61,7 +61,7 @@ def main():
     # User selector in sidebar
     render_user_selector(engine)
 
-    from mltrading.auth import current_display
+    from auth import current_display
     display_name = current_display()
 
     # Header
@@ -115,3 +115,4 @@ if __name__ == "__main__":
     main()
 
 main()
+
