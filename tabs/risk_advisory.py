@@ -21,7 +21,8 @@ def render(engine, today, **kwargs):
         account = st.number_input(
             "Account size ($)",
             min_value=1000,max_value=1000000,
-            value=10000,step=1000)
+            value=10000,step=1000,
+            key="ra_account")
         risk_tier = st.radio("Risk tier",[
             "0.25% — Minimal",
             "0.50% — Reduced",
@@ -97,9 +98,9 @@ def render(engine, today, **kwargs):
                   "MES":5,"SPY":1,"QQQ":1}
         pv = pv_map.get(ticker_c,1)
 
-        entry = st.number_input("Entry",
+        entry = st.number_input("Entry", key="ra_entry",
             value=21500.0,step=0.25,format="%.2f")
-        stop  = st.number_input("Stop",
+        stop  = st.number_input("Stop", key="ra_stop",
             value=21480.0,step=0.25,format="%.2f")
 
         if entry != stop:
@@ -141,3 +142,4 @@ def render(engine, today, **kwargs):
             ), unsafe_allow_html=True)
 
     # ══════════════════════════════════════════════
+
