@@ -6,7 +6,12 @@ import pytz
 EST = pytz.timezone("America/New_York")
 from db import get_engine
 from queries.trades import get_latest_report
-from config import EMOTION_OPTIONS, EXIT_EMOTION_OPTIONS
+from queries.behavioral import (
+    check_reentry_timing, detect_all_behaviors,
+    get_behavioral_data)
+from config import (
+    EMOTION_OPTIONS, EXIT_EMOTION_OPTIONS,
+    TICKER_MULTIPLIERS)
 
 
 def render(engine, today, now_est, **kwargs):
@@ -1003,5 +1008,6 @@ def render(engine, today, now_est, **kwargs):
     st.caption(
     "📊 Full journal → Analytics  |  "
     "🎯 Forward test → Forward Test tab")
+
 
 
