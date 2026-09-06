@@ -865,7 +865,7 @@ def render(engine, today, now_est):
                 range_pct >= up_pct:
             # Range context
             setup_reminder = (
-                "**Range setup:** Wait for "
+                "Range setup: Wait for "
                 "consolidation → breakout with "
                 "volume + delta → FVG → enter "
                 "at FVG fill. Stop: other side "
@@ -874,7 +874,7 @@ def render(engine, today, now_est):
         elif up_pct > down_pct:
             # Bullish trend context
             setup_reminder = (
-                "**Trend setup (Long):** Wait "
+                "Trend setup (Long): Wait "
                 "for HH+HL → pullback to "
                 "EMA-21/34 or VWAP → bullish "
                 "confirmation candle → enter. "
@@ -883,7 +883,7 @@ def render(engine, today, now_est):
         else:
             # Bearish trend context
             setup_reminder = (
-                "**Trend setup (Short):** Wait "
+                "Trend setup (Short): Wait "
                 "for LH+LL → pullback to "
                 "EMA-21/34 or VWAP → bearish "
                 "confirmation candle → enter. "
