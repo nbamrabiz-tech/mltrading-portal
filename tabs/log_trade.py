@@ -128,7 +128,7 @@ def render(engine, today, now_est,
                     value=entry,
                     step=0.25,
                     format="%.2f",
-                    key=f"ep_{tid}")
+                    key=f"lt_exp_{tid}")
                 exit_tm = ec2.text_input(
                     "Exit time (HH:MM)",
                     placeholder="11:59",
@@ -212,7 +212,7 @@ def render(engine, today, now_est,
                 exit_emotion_lbl = st.selectbox(
                     "How did you feel at exit?",
                     list(exit_emotion_opts.keys()),
-                    key=f"ee_{tid}")
+                    key=f"lt_ee_{tid}")
                 exit_emotion = exit_emotion_opts[
                     exit_emotion_lbl]
 
@@ -222,15 +222,15 @@ def render(engine, today, now_est,
                     "Followed plan?",
                     ["Yes","No"],
                     horizontal=True,
-                    key=f"ep_{tid}")
+                    key=f"lt_eplan_{tid}")
                 exit_checked = ep2.radio(
                     "Checked system?",
                     ["Yes","No"],
                     horizontal=True,
-                    key=f"ec_{tid}")
+                    key=f"lt_ec_{tid}")
                 exit_mistake = st.text_input(
                     "Mistake? (blank if none)",
-                    key=f"em_{tid}")
+                    key=f"lt_em_{tid}")
 
                 exit_submitted = \
                     st.form_submit_button(
@@ -1030,5 +1030,6 @@ def render(engine, today, now_est,
     st.caption(
     "📊 Full journal → Analytics  |  "
     "🎯 Forward test → Forward Test tab")
+
 
 
