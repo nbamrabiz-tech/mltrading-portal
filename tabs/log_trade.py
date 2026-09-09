@@ -924,8 +924,7 @@ def render(engine, today, now_est,
                         "acct":   t_acct,
                         "dir":    t_dir,
                         "setup":  (
-                            f"[No Edge Override] "
-                            f"{t_setup}"
+                            f"[NE] {t_setup}"
                             if no_edge_override
                             else t_setup),
                         "entry":  t_entry,
@@ -1073,6 +1072,7 @@ def render(engine, today, now_est,
     st.caption(
     "📊 Full journal → Analytics  |  "
     "🎯 Forward test → Forward Test tab")
+
 
 
 
