@@ -209,3 +209,4 @@ def render(engine, today, now_est, **kwargs):
             st.info(f"No events for {today}.")
 
     # ══════════════════════════════════════════════
+
