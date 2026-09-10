@@ -31,8 +31,9 @@ def get_behavioral_data(uid=None):
                        score_date
                 FROM behavioral_scores
                 WHERE market='US'
+                AND user_id=:uid
                 ORDER BY score_date DESC LIMIT 7
-            """)).fetchall()
+            """), {"uid": uid}).fetchall()
 
             today_b = conn.execute(text("""
                 SELECT behavior_type, severity,
@@ -169,10 +170,12 @@ def calculate_daily_score(target_date=None):
         else:                   state = "Critical"
 
         # Save to behavioral_scores
+        uid = st.session_state.get("user_id", 1)
         with get_engine().connect() as conn:
             conn.execute(text("""
                 INSERT INTO behavioral_scores(
                     market, score_date,
+                    user_id,
                     overall_score,
                     behavioral_state,
                     total_trades,
@@ -180,9 +183,10 @@ def calculate_daily_score(target_date=None):
                     rule_adherence_score,
                     emotion_control_score,
                     discipline_score)
-                VALUES('US',:sd,:os,:bs,
+                VALUES('US',:sd,:uid,:os,:bs,
                        :tt,:ss,:rs,:es,:ds)
-                ON CONFLICT (market, score_date)
+                ON CONFLICT (market, score_date,
+                             user_id)
                 DO UPDATE SET
                     overall_score=:os,
                     behavioral_state=:bs,
@@ -192,14 +196,15 @@ def calculate_daily_score(target_date=None):
                     emotion_control_score=:es,
                     discipline_score=:ds
             """), {
-                "sd": str(target_date),
-                "os": total_score,
-                "bs": state,
-                "tt": total,
-                "ss": sys_score,
-                "rs": plan_score,
-                "es": emo_score,
-                "ds": disc_score
+                "sd":  str(target_date),
+                "uid": uid,
+                "os":  total_score,
+                "bs":  state,
+                "tt":  total,
+                "ss":  sys_score,
+                "rs":  plan_score,
+                "es":  emo_score,
+                "ds":  disc_score
             })
             conn.commit()
 
@@ -534,4 +539,5 @@ def check_reentry_timing(trade_date):
     except:
         pass
     return None
+
 
