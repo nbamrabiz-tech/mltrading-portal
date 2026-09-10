@@ -434,15 +434,9 @@ def detect_all_behaviors(trade_id, trade_date,
                                     f"30min required.",
                         "cost":     min(pnl,0)
                     })
-                elif prev_pnl >= 0 and mins < 15:
-                    behaviors.append({
-                        "type":     "Greed",
-                        "severity": "Medium",
-                        "desc":     f"{mins:.0f}min "
-                                    f"since last win. "
-                                    f"15min minimum.",
-                        "cost":     0
-                    })
+                # Note: re-entry after win
+                # is NOT flagged — not dangerous
+                # Only losses require a break
             except:
                 pass
 
