@@ -36,10 +36,28 @@ def render(engine, **kwargs):
         period_opts,
         index=2,
         key="analytics_period")
+    # Get user's actual accounts dynamically
+    try:
+        from db import get_engine as _ge
+        from sqlalchemy import text as _t
+        _uid = st.session_state.get("user_id",1)
+        with _ge().connect() as _c:
+            _accts = _c.execute(_t("""
+                SELECT DISTINCT account_type
+                FROM trade_journal
+                WHERE market='US'
+                AND user_id=:uid
+                ORDER BY account_type
+            """), {"uid": _uid}).fetchall()
+        acct_opts = ["All"] + [
+            r[0] for r in _accts if r[0]]
+    except:
+        acct_opts = ["All","Live",
+                     "Topstep","Paper"]
+
     acct_filter = pf2.selectbox(
         "Account",
-        ["All","Live","Topstep",
-         "Combine","Paper"],
+        acct_opts,
         key="analytics_acct")
 
     # Custom date range
