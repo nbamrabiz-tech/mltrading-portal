@@ -52,8 +52,10 @@ def render(engine, today, now_est):
                 FROM pre_session_checks
                 WHERE market='US'
                 AND check_date=:td
+                AND user_id=:uid
             """), {
-                "td": str(today_date)
+                "td":  str(today_date),
+                "uid": uid
             }).fetchone()
         if check_data:
             check_exists    = True
@@ -147,14 +149,16 @@ def render(engine, today, now_est):
                             INSERT INTO
                             pre_session_checks(
                                 market, check_date,
+                                user_id,
                                 sleep_quality,
                                 stress_level,
                                 substances,
                                 trading_allowed)
-                            VALUES('US',:td,
+                            VALUES('US',:td,:uid,
                                    :sl,:st,:sub,:ta)
                             ON CONFLICT
-                            (market, check_date)
+                            (market, check_date,
+                             user_id)
                             DO UPDATE SET
                                 sleep_quality=:sl,
                                 stress_level=:st,
@@ -162,6 +166,7 @@ def render(engine, today, now_est):
                                 trading_allowed=:ta
                         """), {
                             "td":  str(today_date),
+                            "uid": uid,
                             "sl":  sleep_val,
                             "st":  stress,
                             "sub": substances,
