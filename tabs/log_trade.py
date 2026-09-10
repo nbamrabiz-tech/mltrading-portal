@@ -708,14 +708,12 @@ def render(engine, today, now_est,
             "Target (for R:R calculation)",
             value=0.0,step=0.25,format="%.2f")
 
-        # Row 4 — Entry + Exit times
-        r4c1,r4c2 = st.columns(2)
-        t_entry_time = r4c1.text_input(
+        # Row 4 — Entry time only
+        # Exit time is captured on exit form
+        t_entry_time = st.text_input(
             "Entry time (HH:MM)",
             placeholder="09:45")
-        t_exit_time  = r4c2.text_input(
-            "Exit time (HH:MM)",
-            placeholder="10:15")
+        t_exit_time  = None
 
         # Emotion picker
         emotion_options = {
@@ -1072,6 +1070,7 @@ def render(engine, today, now_est,
     st.caption(
     "📊 Full journal → Analytics  |  "
     "🎯 Forward test → Forward Test tab")
+
 
 
 
