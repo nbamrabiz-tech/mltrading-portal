@@ -118,6 +118,7 @@ def get_setup_analysis():
         return []
 
 def get_account_breakdown():
+    uid = st.session_state.get("user_id", 1)
     try:
         with get_engine().connect() as conn:
             result = conn.execute(text("""
@@ -129,11 +130,14 @@ def get_account_breakdown():
                 JOIN trade_journal tj
                     ON be.trade_id = tj.id
                 WHERE tj.market='US'
+                AND tj.user_id=:uid
+                AND be.user_id=:uid
                 AND be.event_date >= :start
                 GROUP BY tj.account_type,
                          be.behavior_type
                 ORDER BY tj.account_type, cnt DESC
             """), {
+                "uid":   uid,
                 "start": str(
                     date.today()-timedelta(days=30))
             }).fetchall()
@@ -285,5 +289,6 @@ def score_color(score):
     if score >= 50: return "#FF8C00"
     if score >= 35: return "#FF5722"
     return "#CC0000"
+
 
 
