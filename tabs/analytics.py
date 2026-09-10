@@ -31,10 +31,23 @@ def render(engine, **kwargs):
         "Last 30 days",
         "Custom range"
     ]
+    # Reset period when user changes
+    _cur_uid = st.session_state.get(
+        "user_id", 1)
+    if st.session_state.get(
+            "_last_uid_analytics")             != _cur_uid:
+        st.session_state[
+            "analytics_period"] =             "Last 30 days"
+        st.session_state[
+            "_last_uid_analytics"] =             _cur_uid
+
     days_filter = pf1.selectbox(
         "Period",
         period_opts,
-        index=2,
+        index=period_opts.index(
+            st.session_state.get(
+                "analytics_period",
+                "Last 30 days")),
         key="analytics_period")
     # Get user's actual accounts dynamically
     try:
@@ -88,9 +101,10 @@ def render(engine, **kwargs):
         trades_j = get_trade_journal(
             dback if dback > 0 else 30)
         if days_filter == "Today":
+            today_str = str(date.today())
             trades_j = [t for t in trades_j
-                        if str(t[1]) == str(
-                            date.today())]
+                        if str(t[1])[:10]
+                        == today_str]
 
     if acct_filter != "All":
         trades_j = [t for t in trades_j
