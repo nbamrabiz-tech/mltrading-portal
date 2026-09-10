@@ -1100,14 +1100,24 @@ def render(engine, today, now_est):
                 ORDER BY s.account_type DESC
             """), {"uid": uid}).fetchall()
 
-            # All P&L from inception
+            # P&L from balance_from_date only
+            # Prevents pre-portal trades from
+            # affecting the balance calculation
             all_pnl = conn.execute(text("""
-                SELECT account_type,
-                       SUM(pnl) as total_pnl
-                FROM trade_journal
-                WHERE market='US'
-                AND user_id=:uid
-                GROUP BY account_type
+                SELECT tj.account_type,
+                       SUM(tj.pnl) as total_pnl
+                FROM trade_journal tj
+                LEFT JOIN account_settings ac
+                    ON ac.market='US'
+                    AND ac.user_id=:uid
+                    AND (ac.account_type=tj.account_type
+                         OR ac.account_name=tj.account_type)
+                WHERE tj.market='US'
+                AND tj.user_id=:uid
+                AND tj.trade_date >= COALESCE(
+                    ac.balance_from_date,
+                    '2026-09-08')
+                GROUP BY tj.account_type
             """), {"uid": uid}).fetchall()
 
             # Today's P&L
@@ -1453,3 +1463,4 @@ def render(engine, today, now_est):
         check_exists=check_exists,
         check_data=check_data,
         trading_allowed=trading_allowed)
+
