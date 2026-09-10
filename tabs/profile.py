@@ -861,7 +861,12 @@ def render(engine, today, now_est):
         )
 
     # ── Setup reminder (personal system) ─────
-    if report:
+    # Only show for Sunny (real trader)
+    # Test traders have different strategies
+    _username = st.session_state.get(
+        "username", "sunny")
+
+    if report and _username == "sunny":
         up_pct    = int(report.get("up_pct",33))
         down_pct  = int(report.get("down_pct",33))
         range_pct = int(report.get("range_pct",34))
@@ -1470,4 +1475,5 @@ def render(engine, today, now_est):
         check_exists=check_exists,
         check_data=check_data,
         trading_allowed=trading_allowed)
+
 
