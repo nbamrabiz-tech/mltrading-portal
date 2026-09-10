@@ -29,10 +29,6 @@ def render(engine, **kwargs):
         "Today",
         "Last 7 days",
         "Last 30 days",
-        "Last 60 days",
-        "Last 90 days",
-        "Last 120 days",
-        "Last 365 days",
         "Custom range"
     ]
     days_filter = pf1.selectbox(
@@ -58,14 +54,10 @@ def render(engine, **kwargs):
             value=date.today())
 
     days_map = {
-        "Today":         0,
-        "Last 7 days":   7,
-        "Last 30 days":  30,
-        "Last 60 days":  60,
-        "Last 90 days":  90,
-        "Last 120 days": 120,
-        "Last 365 days": 365,
-        "Custom range":  30
+        "Today":        0,
+        "Last 7 days":  7,
+        "Last 30 days": 30,
+        "Custom range": 365
     }
     dback = days_map[days_filter]
 
@@ -377,4 +369,5 @@ def render(engine, **kwargs):
             st.info("No trades this week.")
     except Exception as e:
         st.info("No weekly data yet.")
+
 
