@@ -717,15 +717,13 @@ def render(engine, today, now_est,
 
         # Emotion picker
         emotion_options = {
-            "😌 Calm/Focused":    1,
-            "😊 Confident":       2,
-            "😤 Eager/Excited":   4,
-            "😬 Itchy/Restless":  5,
-            "😰 Anxious/Nervous": 7,
-            "😠 Angry/Frustrated":8,
-            "🤑 Greedy":          7,
-            "😱 FOMO":            6,
-            "😑 Bored":           4,
+            "😌 Calm":     1,
+            "😨 Fear":     7,
+            "🤑 Greed":    7,
+            "😤 Excited":  5,
+            "😱 FOMO":     6,
+            "😠 Revenge":  9,
+            "😑 Bored":    4,
         }
         emotion_label = st.selectbox(
             "How are you feeling?",
@@ -1070,6 +1068,7 @@ def render(engine, today, now_est,
     st.caption(
     "📊 Full journal → Analytics  |  "
     "🎯 Forward test → Forward Test tab")
+
 
 
 
