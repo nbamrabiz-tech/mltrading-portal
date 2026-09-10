@@ -439,3 +439,155 @@ def render(engine, **kwargs):
 
     except Exception as e:
         st.info("No cost data yet.")
+    st.divider()
+
+    # ── SECTION 5: Emotional Trader Profile ──
+    st.markdown("### 🥧 Emotional Trader Profile")
+    st.caption(
+        "Breakdown of all behavioral patterns. "
+        "What percentage of your trading "
+        "is driven by each emotion?")
+
+    try:
+        with engine.connect() as conn:
+            pie_data = conn.execute(text("""
+                SELECT behavior_type,
+                       COUNT(*) as cnt
+                FROM behavioral_events
+                WHERE market='US'
+                AND user_id=:uid
+                AND severity != 'Positive'
+                AND event_date >= :start
+                GROUP BY behavior_type
+                ORDER BY cnt DESC
+            """), {
+                "uid":   uid,
+                "start": str(start_date)
+            }).fetchall()
+
+        if pie_data:
+            total_events = sum(
+                int(r[1]) for r in pie_data)
+
+            # Color map per pattern
+            COLORS = {
+                "Revenge Trading":    "#CC0000",
+                "FOMO":               "#FF6B35",
+                "Overtrading":        "#FFA500",
+                "Greed":              "#FFD700",
+                "Boredom Trading":    "#4ECDC4",
+                "Hesitant Trading":   "#9B59B6",
+                "Rule Violation":     "#E74C3C",
+                "Traded Against Edge":"#95A5A6",
+                "Instrument Escalation":"#2C3E50",
+                "Tilt":               "#C0392B",
+            }
+
+            # Draw pie chart using HTML/CSS
+            st.markdown(
+                "<div style='display:flex;"
+                "flex-wrap:wrap;gap:8px;"
+                "margin-bottom:16px;'>",
+                unsafe_allow_html=True)
+
+            # Build segments display
+            segments = []
+            for r in pie_data:
+                btype = r[0]
+                cnt   = int(r[1])
+                pct   = round(cnt/total_events*100)
+                color = COLORS.get(btype, "#888")
+                plain = PLAIN.get(
+                    btype, (btype, "⚪"))
+                segments.append((
+                    btype, cnt, pct,
+                    color, plain))
+
+            # Visual bar representation
+            st.markdown(
+                "<div style='width:100%;"
+                "height:32px;border-radius:8px;"
+                "overflow:hidden;display:flex;"
+                "margin-bottom:12px;'>",
+                unsafe_allow_html=True)
+
+            for btype, cnt, pct, color, plain                     in segments:
+                if pct > 0:
+                    st.markdown(
+                        f"<div style='width:{pct}%;"
+                        f"background:{color};"
+                        f"height:32px;"
+                        f"display:flex;"
+                        f"align-items:center;"
+                        f"justify-content:center;"
+                        f"font-size:11px;"
+                        f"color:white;"
+                        f"font-weight:700;'>"
+                        f"{pct}%"
+                        f"</div>",
+                        unsafe_allow_html=True)
+
+            st.markdown(
+                "</div>", unsafe_allow_html=True)
+
+            # Legend
+            for btype, cnt, pct, color, plain                     in segments:
+                st.markdown(
+                    f"<div style='display:flex;"
+                    f"align-items:center;"
+                    f"gap:10px;padding:6px 0;"
+                    f"border-bottom:"
+                    f"1px solid #F0F0F0;'>"
+                    f"<div style='width:14px;"
+                    f"height:14px;border-radius:3px;"
+                    f"background:{color};"
+                    f"flex-shrink:0;'></div>"
+                    f"<span style='flex:1;"
+                    f"font-size:14px;color:#333;'>"
+                    f"{plain[1]} {btype}</span>"
+                    f"<span style='font-weight:700;"
+                    f"color:{color};"
+                    f"font-size:15px;'>{pct}%"
+                    f"</span>"
+                    f"<span style='color:#888;"
+                    f"font-size:12px;"
+                    f"width:60px;text-align:right;'>"
+                    f"{cnt}x</span>"
+                    f"</div>",
+                    unsafe_allow_html=True)
+
+            # Dominant emotion callout
+            if segments:
+                top = segments[0]
+                st.markdown(
+                    f"<div style='background:"
+                    f"{top[3]}15;"
+                    f"border-left:4px solid "
+                    f"{top[3]};"
+                    f"border-radius:0 8px 8px 0;"
+                    f"padding:12px 16px;"
+                    f"margin-top:12px;'>"
+                    f"<div style='font-size:15px;"
+                    f"font-weight:700;"
+                    f"color:{top[3]};'>"
+                    f"Dominant pattern: "
+                    f"{top[4][1]} {top[0]}"
+                    f"</div>"
+                    f"<div style='font-size:13px;"
+                    f"color:#555;margin-top:4px;'>"
+                    f"{top[2]}% of all behavioral "
+                    f"events — {top[1]} occurrences. "
+                    f"This is your primary pattern "
+                    f"to address.</div>"
+                    f"</div>",
+                    unsafe_allow_html=True)
+        else:
+            st.info(
+                "No behavioral data yet. "
+                "Log trades to build your "
+                "emotional profile.")
+
+    except Exception as e:
+        st.error(f"Chart error: {e}")
+
+
