@@ -24,12 +24,14 @@ from config import BEHAVIOR_PLAIN
 
 
 def render(engine, today, now_est):
+    # Current user — used throughout
+    uid = st.session_state.get("user_id", 1)
+
     report   = get_latest_report()
-    _uid_debug = st.session_state.get(
-        "user_id", 1)
+    _uid_debug = uid
     events_b,scores_b,today_b,today_t = \
         get_behavioral_data(
-            uid=_uid_debug)
+            uid=uid)
 
     # ── Pre-session check-in ──────────────────
     today_date      = datetime.now(EST).date()
