@@ -270,24 +270,31 @@ def get_streaks():
             result["trade_streak"]      = streak
             result["trade_streak_type"] = current_type
 
-            if current_type == "Loss" and streak >= 3:
+            # Only warn about streaks that
+            # include TODAY's trades
+            # Historical streaks are informational
+            # not actionable warnings
+            today_str = str(date.today())
+            recent = [t for t in trades[:streak]
+                      if str(t[1])[:10]
+                      == today_str]
+            has_today = len(recent) > 0
+
+            if current_type == "Loss"                     and streak >= 3                     and has_today:
                 result["warnings"].append(
                     f"⛔ {streak} loss streak. "
                     f"STOP TRADING TODAY. "
-                    f"Come back tomorrow fresh."
-                )
-            elif current_type == "Loss" and streak >= 2:
+                    f"Come back tomorrow fresh.")
+            elif current_type == "Loss"                     and streak >= 2                     and has_today:
                 result["warnings"].append(
                     f"🔴 {streak} consecutive losses. "
                     f"Revenge risk is HIGH. "
-                    f"30 min break before next trade."
-                )
-            elif current_type == "Win" and streak >= 3:
+                    f"30 min break before next trade.")
+            elif current_type == "Win"                     and streak >= 4                     and has_today:
                 result["warnings"].append(
                     f"⚠️ {streak} win streak. "
                     f"Overconfidence risk. "
-                    f"Do not increase size."
-                )
+                    f"Do not increase size.")
 
         # Prediction streaks — exclude No Edge days
         with get_engine().connect() as conn:
