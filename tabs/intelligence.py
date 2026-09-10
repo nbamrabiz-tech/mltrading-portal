@@ -169,16 +169,106 @@ def render(engine, today, now_est, **kwargs):
 
         st.divider()
         st.subheader("📍 Key Levels")
-        kc1,kc2 = st.columns(2)
-        for col,tkr in [(kc1,"SPY"),(kc2,"QQQ")]:
-            with col:
-                st.markdown(f"**{tkr}**")
-                lv = levels.get(tkr,{})
+
+        # Try to get 4H/1H levels from spy_levels
+        try:
+            from db import get_engine as _ge
+            from sqlalchemy import text as _t
+            with _ge().connect() as _c:
+                _sl = _c.execute(_t("""
+                    SELECT pdh, pdl, pdc,
+                           h4_high_1, h4_low_1,
+                           h4_high_2, h4_low_2,
+                           h1_high_1, h1_low_1,
+                           h1_high_2, h1_low_2,
+                           h1_high_3, h1_low_3,
+                           qqq_pdh, qqq_pdl, qqq_pdc
+                    FROM spy_levels
+                    WHERE market='US'
+                    AND level_date=:td
+                    LIMIT 1
+                """), {"td": str(today)}).fetchone()
+        except:
+            _sl = None
+
+        kc1, kc2 = st.columns(2)
+
+        with kc1:
+            st.markdown("**SPY**")
+            if _sl:
+                l1,l2,l3 = st.columns(3)
+                l1.metric("PDH", f"${float(_sl[0]):.2f}")
+                l2.metric("PDC", f"${float(_sl[2]):.2f}")
+                l3.metric("PDL", f"${float(_sl[1]):.2f}")
+
+                # 4H levels
+                if _sl[3] and float(_sl[3]) > 0:
+                    st.markdown(
+                        "<div style='font-size:11px;"
+                        "color:#888;margin-top:6px;'>"
+                        "4H levels</div>",
+                        unsafe_allow_html=True)
+                    a1,a2 = st.columns(2)
+                    a1.metric("4H High",
+                        f"${float(_sl[3]):.2f}")
+                    a2.metric("4H Low",
+                        f"${float(_sl[4]):.2f}")
+                    if _sl[5] and float(_sl[5]) > 0:
+                        b1,b2 = st.columns(2)
+                        b1.metric("4H High 2",
+                            f"${float(_sl[5]):.2f}")
+                        b2.metric("4H Low 2",
+                            f"${float(_sl[6]):.2f}")
+
+                # 1H levels
+                if _sl[7] and float(_sl[7]) > 0:
+                    st.markdown(
+                        "<div style='font-size:11px;"
+                        "color:#888;margin-top:6px;'>"
+                        "1H levels</div>",
+                        unsafe_allow_html=True)
+                    c1,c2 = st.columns(2)
+                    c1.metric("1H High",
+                        f"${float(_sl[7]):.2f}")
+                    c2.metric("1H Low",
+                        f"${float(_sl[8]):.2f}")
+                    if _sl[9] and float(_sl[9]) > 0:
+                        d1,d2 = st.columns(2)
+                        d1.metric("1H High 2",
+                            f"${float(_sl[9]):.2f}")
+                        d2.metric("1H Low 2",
+                            f"${float(_sl[10]):.2f}")
+            else:
+                lv = levels.get("SPY", {})
                 if lv:
                     l1,l2,l3 = st.columns(3)
-                    l1.metric("PDH",f"${lv['pdh']:.2f}")
-                    l2.metric("PDC",f"${lv['pdc']:.2f}")
-                    l3.metric("PDL",f"${lv['pdl']:.2f}")
+                    l1.metric("PDH",
+                        f"${lv['pdh']:.2f}")
+                    l2.metric("PDC",
+                        f"${lv['pdc']:.2f}")
+                    l3.metric("PDL",
+                        f"${lv['pdl']:.2f}")
+
+        with kc2:
+            st.markdown("**QQQ**")
+            if _sl and _sl[13] and                     float(_sl[13]) > 0:
+                q1,q2,q3 = st.columns(3)
+                q1.metric("PDH",
+                    f"${float(_sl[13]):.2f}")
+                q2.metric("PDC",
+                    f"${float(_sl[15]):.2f}")
+                q3.metric("PDL",
+                    f"${float(_sl[14]):.2f}")
+            else:
+                lv = levels.get("QQQ", {})
+                if lv:
+                    l1,l2,l3 = st.columns(3)
+                    l1.metric("PDH",
+                        f"${lv['pdh']:.2f}")
+                    l2.metric("PDC",
+                        f"${lv['pdc']:.2f}")
+                    l3.metric("PDL",
+                        f"${lv['pdl']:.2f}")
 
         if events:
             st.divider()
@@ -209,4 +299,5 @@ def render(engine, today, now_est, **kwargs):
             st.info(f"No events for {today}.")
 
     # ══════════════════════════════════════════════
+
 
