@@ -116,6 +116,67 @@ def render(engine, today, now_est,
                 unsafe_allow_html=True
             )
 
+            # ── Edit trade button ─────────
+            with st.expander(
+                    f"✏️ Edit entry {tid}",
+                    expanded=False):
+                with st.form(
+                        f"edit_form_{tid}"):
+                    ea,eb,ec = st.columns(3)
+                    new_entry = ea.number_input(
+                        "Entry price",
+                        value=entry,
+                        step=0.25,
+                        format="%.2f",
+                        key=f"ed_entry_{tid}")
+                    new_stop = eb.number_input(
+                        "Stop price",
+                        value=stop,
+                        step=0.25,
+                        format="%.2f",
+                        key=f"ed_stop_{tid}")
+                    new_target = ec.number_input(
+                        "Target price",
+                        value=target,
+                        step=0.25,
+                        format="%.2f",
+                        key=f"ed_target_{tid}")
+                    new_qty = st.number_input(
+                        "Contracts",
+                        value=qty,
+                        min_value=1,
+                        max_value=50,
+                        key=f"ed_qty_{tid}")
+                    if st.form_submit_button(
+                            "💾 Save changes"):
+                        try:
+                            from db import                                 get_engine as _ge
+                            from sqlalchemy import                                 text as _t
+                            with _ge().connect()                                     as _c:
+                                _c.execute(_t("""
+                                    UPDATE
+                                    trade_journal
+                                    SET
+                                    entry_price=:ep,
+                                    stop_price=:sp,
+                                    planned_target=:tp,
+                                    size_contracts=:qty
+                                    WHERE id=:tid
+                                    AND market='US'
+                                """), {
+                                    "ep":  new_entry,
+                                    "sp":  new_stop,
+                                    "tp":  new_target,
+                                    "qty": new_qty,
+                                    "tid": tid
+                                })
+                                _c.commit()
+                            st.success(
+                                "✓ Trade updated")
+                            st.rerun()
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
             with st.form(
                 f"exit_form_{tid}",
                 clear_on_submit=True
@@ -541,10 +602,35 @@ def render(engine, today, now_est,
             "⚠️ No Edge today — "
             "consider sitting out")
 
-    if total_today >= 3:
-        st.warning(
-            f"⚠️ Trade #{total_today+1} "
-            f"today — max 3 recommended")
+    # Count trades per account today
+    try:
+        _uid = st.session_state.get("user_id",1)
+        from db import get_engine as _ge
+        from sqlalchemy import text as _t
+        with _ge().connect() as _c:
+            _acct_counts = _c.execute(_t("""
+                SELECT account_type,
+                       COUNT(*) as cnt
+                FROM trade_journal
+                WHERE market='US'
+                AND user_id=:uid
+                AND trade_date=:td
+                AND trade_status='closed'
+                GROUP BY account_type
+            """), {
+                "uid": _uid,
+                "td":  str(date.today())
+            }).fetchall()
+        for _ac, _cnt in _acct_counts:
+            if _cnt >= 3:
+                st.warning(
+                    f"⚠️ {_ac}: Trade #{_cnt+1} "
+                    f"today — max 3 per account")
+    except:
+        if total_today >= 3:
+            st.warning(
+                f"⚠️ Trade #{total_today+1} "
+                f"today — max 3 recommended")
 
     if not gate_blocked:
         st.success("✅ Gate clear — proceed")
@@ -1068,6 +1154,7 @@ def render(engine, today, now_est,
     st.caption(
     "📊 Full journal → Analytics  |  "
     "🎯 Forward test → Forward Test tab")
+
 
 
 
