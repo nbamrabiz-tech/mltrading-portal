@@ -882,13 +882,18 @@ def render(engine, today, now_est,
             # ── Breakeven reminder ────────
             if t_exit == 0 and \
                     risk_pts > 0 and \
-                    planned_rr >= 0.8:
+                    planned_rr >= 0.5:
                 be_price = (
                     t_entry + risk_pts
                     if t_dir=="Long"
                     else t_entry - risk_pts)
+                half_rr_price = (
+                    t_entry + risk_pts * 0.5
+                    if t_dir=="Long"
+                    else t_entry - risk_pts * 0.5)
                 st.info(
-                    f"⚡ At 0.8:1 RR → "
+                    f"⚡ At 0.5R "
+                    f"({half_rr_price:.2f}) → "
                     f"move SL to breakeven "
                     f"({be_price:.2f}). "
                     f"Cannot lose after that.")
@@ -1154,6 +1159,7 @@ def render(engine, today, now_est,
     st.caption(
     "📊 Full journal → Analytics  |  "
     "🎯 Forward test → Forward Test tab")
+
 
 
 
